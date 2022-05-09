@@ -133,6 +133,7 @@ namespace modbus_server
                         Console.WriteLine(e.Message) ;
                     }
                     
+
                     break;
                 case 4://Read Input Registers
                     try
