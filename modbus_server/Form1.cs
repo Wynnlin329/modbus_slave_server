@@ -8,18 +8,22 @@ using Modbus.Device;
 using MongoDB;
 using MongoDB.Bson;
 using MongoDB.Driver;
+
 namespace modbus_server
 {
     public partial class Form1 : Form
     {
         ModbusSlave slave;
+        MongoClient mongoClient;
+        IMongoDatabase mongoDataBase;
+        string connectionString = "mongodb://wynn:0000@192.168.6.119:27017,192.168.6.120:27017,192.168.6.122:27017/?replicaSet=rs0";
         string logAddress = @"D:\log\";
-        string MacAddress;
+        string macAddress;
         public Form1()
         {
             InitializeComponent();
-            MacAddress = GetMacAddress();
-            if (MacAddress == "04:42:1A:CB:96:CA")//00:E0:4C:68:3C:F5
+            macAddress = GetMacAddress();
+            if (macAddress == "04:42:1A:CB:96:CA")//00:E0:4C:68:3C:F5
             {
                 //MongoDBConnect();
                 StartModbusTcpSlave();
@@ -47,27 +51,28 @@ namespace modbus_server
                 }
                 moc = null;
                 mc = null;
-                WriteLog("GetMacAddress : " + mac);
+                WriteLog("GetMacAddress : " + mac);//之後要刪
                 return mac;
             }
             catch (Exception e)
             {
-                WriteLog("GetMacAddress Excption : " + e.Message);
+                WriteLog("GetMacAddress Excption : " + e.Message);//之後要刪
                 return "unknow";
             }
         }
 
         public void MongoDBConnect()
         {
-            string connectionString = "mongodb://wynn:0000@192.168.6.119:27017,192.168.6.120:27017,192.168.6.122:27017/?replicaSet=rs0";
-            MongoClient mongoClient = new MongoClient(connectionString);
-
-
-            IMongoDatabase db = mongoClient.GetDatabase("test");
-            var collection = db.GetCollection<BsonDocument>("coil");
-            var filter = Builders<BsonDocument>.Filter.Eq("2", "false");
-            var doc = collection.Find(filter).FirstOrDefault();
-            Console.WriteLine(doc.ToString());
+            try
+            {
+                mongoClient = new MongoClient(connectionString);
+                mongoDataBase = mongoClient.GetDatabase("test");
+                WriteLog("連線至DataBase : " + mongoDataBase );
+            }
+            catch (Exception e)
+            {
+                WriteLog("MongoDBConnect  Exception : " + e.Message);
+            }
         }
         
         public void StartModbusTcpSlave()
@@ -92,7 +97,6 @@ namespace modbus_server
 
                 WriteLog("StartModbusTcpSlave : " + e.Message);
             }
-            
         }
 
         private void Slave_ModbusSlaveRequestReceived(object? sender, ModbusSlaveRequestEventArgs e)
@@ -101,44 +105,87 @@ namespace modbus_server
             int functionCode;
             int startAddress;
             int numOfRegister;
+            RequestParam requestParam = new RequestParam();
             List<bool> writeDataCoil = new List<bool>();
-            List<ushort> writeData = new List<ushort>();
-            //讀取 mongo data
-            //拆解 mongo data 資料
-            //資料寫入data store
-            functionCode = e.Message.MessageFrame[1];
-            startAddress = e.Message.MessageFrame[3];
-            numOfRegister = e.Message.MessageFrame[5];
-            WriteLog("進入Event : functionCode : "+ functionCode + " startAddress : " + startAddress + " numOfRegister : " + numOfRegister);
-            if(functionCode == 1 || functionCode == 2)
+            List<string> writeDataTemp = new List<string>();
+            List<ushort> writeDataRegisters = new List<ushort>();
+            requestParam.functionCode = e.Message.MessageFrame[1];
+            requestParam.startAddress = e.Message.MessageFrame[3];
+            requestParam.numOfRegister = e.Message.MessageFrame[5];
+
+
+
+            WriteLog("進入Event : functionCode : "+ requestParam.functionCode + " startAddress : " + requestParam.startAddress + " numOfRegister : " + requestParam.numOfRegister);
+            if(requestParam.functionCode == 1 || requestParam.functionCode == 2)
             {
-                DataStoreWrite(functionCode, startAddress, numOfRegister, writeDataCoil);
+                //讀取 mongo data
+                writeDataTemp = LoadMongoDataCoils();
+                //拆解 mongo data
+                writeDataCoil = ProcessingMongoDataCoils(writeDataTemp);
+                //寫入 data store
+                DataStoreWrite(requestParam, writeDataCoil);
             }
             else
             {
-                DataStoreWrite(functionCode, startAddress, numOfRegister, writeData);
+                //讀取 mongo data
+                writeDataTemp = LoadMongoDataRegisters();
+                //拆解 mongo data
+                writeDataRegisters = ProcessingMongoDataRegisters(writeDataTemp);
+                //寫入 data store
+                DataStoreWrite(requestParam, writeDataRegisters);
             }
         }
-        public void LoadDataBase()
+        public List<string> LoadMongoDataCoils()
         {
+            List<string> mongoData = new List<string>();
 
+            var collection = mongoDataBase.GetCollection<BsonDocument>("coil");
+            var filter = Builders<BsonDocument>.Filter.Eq("2", "false");
+            var doc = collection.Find(filter).FirstOrDefault();
+            Console.WriteLine(doc.ToString());
+
+            return mongoData;
         }
-        public void DataStoreWrite(int functionCode ,int startAddress,int numOfRegister,List<bool> writeData)
+        public List<string> LoadMongoDataRegisters()
+        {
+            List<string> mongoData = new List<string>();
+
+            var collection = mongoDataBase.GetCollection<BsonDocument>("coil");
+            var filter = Builders<BsonDocument>.Filter.Eq("2", "false");
+            var doc = collection.Find(filter).FirstOrDefault();
+            Console.WriteLine(doc.ToString());
+
+            return mongoData;
+        }
+
+        public List<bool> ProcessingMongoDataCoils(List<string>mongoData)
+        {
+            List<bool> mongoDataCoils = new List<bool>();
+
+            return mongoDataCoils;
+        }
+        public List<ushort> ProcessingMongoDataRegisters(List<string> mongoData)
+        {
+            List<ushort> mongoDataRegisters = new List<ushort>();
+
+            return mongoDataRegisters;
+        }
+        public void DataStoreWrite(RequestParam requestParam,List<bool> writeData)
         {
             writeData.Add(true);
             writeData.Add(false);
             writeData.Add(true);
             writeData.Add(false);
             writeData.Add(true);
-            switch (functionCode)
+            switch (requestParam.functionCode)
             {
                 case 1://Read Coil Status
                     try
                     {
-                        for (int i = 0; i < numOfRegister; i++)
+                        for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            slave.DataStore.CoilDiscretes[startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Coil Status : " + slave.DataStore.CoilDiscretes[startAddress + i + 1] + " = " + writeData[i]);
+                            slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] = writeData[i];
+                            WriteLog("Read Coil Status : " + slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
                         }
                         
                     }
@@ -150,10 +197,10 @@ namespace modbus_server
                 case 2://Read Input Status
                     try
                     {
-                        for (int i = 0; i < numOfRegister; i++)
+                        for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            slave.DataStore.InputDiscretes[startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Input Status : " + slave.DataStore.InputDiscretes[startAddress + i + 1] + " = " + writeData[i]);
+                            slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] = writeData[i];
+                            WriteLog("Read Input Status : " + slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
                         }
                     }
                     catch (Exception e)
@@ -165,22 +212,22 @@ namespace modbus_server
                     break;
             }
         }
-        public void DataStoreWrite(int functionCode, int startAddress, int numOfRegister, List<ushort> writeData)
+        public void DataStoreWrite(RequestParam requestParam, List<ushort> writeData)
         {
             writeData.Add(1);
             writeData.Add(2);
             writeData.Add(3);
             writeData.Add(4);
             writeData.Add(5);
-            switch (functionCode)
+            switch (requestParam.functionCode)
             {
                 case 3://Read Holding Registers
                     try
                     {
-                        for (int i = 0; i < numOfRegister; i++)
+                        for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            slave.DataStore.HoldingRegisters[startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Holding Registers : " + slave.DataStore.HoldingRegisters[startAddress + i + 1] + " = " + writeData[i]);
+                            slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeData[i];
+                            WriteLog("Read Holding Registers : " + slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
                         }
                     }
                     catch (Exception e)
@@ -194,10 +241,10 @@ namespace modbus_server
                 case 4://Read Input Registers
                     try
                     {
-                        for (int i = 0; i < numOfRegister; i++)
+                        for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            slave.DataStore.InputRegisters[startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Input Registers : " + slave.DataStore.InputRegisters[startAddress + i + 1] + " = " + writeData[i]);
+                            slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] = writeData[i];
+                            WriteLog("Read Input Registers : " + slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
                         }
                     }
                     catch (Exception e)
