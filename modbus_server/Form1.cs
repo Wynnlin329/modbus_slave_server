@@ -13,26 +13,24 @@ namespace modbus_server
 {
     public partial class Form1 : Form
     {
-        ModbusSlave slave;
-        MongoClient mongoClient;
-        IMongoDatabase mongoDataBase;
-        string connectionString = "mongodb://wynn:0000@192.168.6.119:27017,192.168.6.120:27017,192.168.6.122:27017/?replicaSet=rs0";
+        ModbusTcpConnParam modbusTcpConnParam = new ModbusTcpConnParam();
+        MongoDBConnParam mongoDBConnParam = new MongoDBConnParam();
         string logAddress = @"D:\log\";
         string macAddress;
         public Form1()
         {
             InitializeComponent();
-            macAddress = GetMacAddress();
-            if (macAddress == "00:E0:4C:68:3C:F5")//00:E0:4C:68:3C:F5(test)     04:42:1A:CB:96:CA(remote)
-            {
-                //MongoDBConnect();
-                StartModbusTcpSlave();
-            }
-            else
-            {
-                throw new Exception("系統異常");
-            }
-            
+            //macAddress = GetMacAddress();
+            //if (macAddress == "00:E0:4C:68:3C:F5")//00:E0:4C:68:3C:F5(test)     04:42:1A:CB:96:CA(remote)
+            //{
+            //    //MongoDBConnect();
+            //    StartModbusTcpSlave();
+            //}
+            //else
+            //{
+            //    throw new Exception("系統異常");
+            //}
+            IPAddressInit();
         }
         public string GetMacAddress()
         {
@@ -52,29 +50,51 @@ namespace modbus_server
                 }
                 moc = null;
                 mc = null;
-                WriteLog("GetMacAddress : " + mac);//之後要刪
+                //WriteLog("GetMacAddress : " + mac);//之後要刪
                 return mac;
             }
             catch (Exception e)
             {
-                WriteLog("GetMacAddress Excption : " + e.Message);//之後要刪
+                //WriteLog("GetMacAddress Excption : " + e.Message);//之後要刪
                 return "unknow";
             }
+        }
+        public void IPAddressInit()
+        {
+            this.modbusTcpConnParam.port = 502;
+            this.modbusTcpConnParam.slaveID = 1;
+            IPHostEntry ipEntry = Dns.GetHostEntry(Dns.GetHostName());
+            IPAddress[] addr = ipEntry.AddressList;
+            for (int i = 0; i < addr.Count(); i++)
+            {
+                comboBox1.Items.Insert(i, addr[i]);
+            }
+        }
+        private void button1_Click(object sender, EventArgs e)
+        {
+            if (this.modbusTcpConnParam.tcpListener != null)
+            {
+                this.modbusTcpConnParam.slave.Dispose();
+                this.modbusTcpConnParam.tcpListener.Stop();
+            }
+            this.modbusTcpConnParam.ipAddress = (IPAddress)comboBox1.SelectedItem;
+            StartModbusTcpSlave();
         }
 
         public void MongoDBConnect()
         {
             try
             {
-                mongoClient = new MongoClient(connectionString);
-                mongoDataBase = mongoClient.GetDatabase("test");
-                WriteLog("連線至DataBase : " + mongoDataBase );
-                textBox1.AppendText("連線至DataBase : " + mongoDataBase + "\r\n");
+                this.mongoDBConnParam.connectionString = "mongodb://wynn:0000@192.168.6.119:27017,192.168.6.120:27017,192.168.6.122:27017/?replicaSet=rs0";
+                this.mongoDBConnParam.mongoClient = new MongoClient(this.mongoDBConnParam.connectionString);
+                this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase("test");
+                WriteLog("連線至DataBase : " + this.mongoDBConnParam.mongoDataBase );
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "連線至DataBase : " + this.mongoDBConnParam.mongoDataBase + "\r\n");
             }
             catch (Exception e)
             {
                 WriteLog("MongoDBConnect  Exception : " + e.Message);
-                textBox1.AppendText("MongoDBConnect  Exception : " + e.Message + "\r\n");
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDBConnect  Exception : " + e.Message + "\r\n");
             }
         }
         
@@ -82,26 +102,37 @@ namespace modbus_server
         {
             try
             {
-                byte slaveID = 1;
-                int port = 502;
-                IPHostEntry ipEntry = Dns.GetHostEntry(Dns.GetHostName());
-                IPAddress[] addr = ipEntry.AddressList;
-                TcpListener tcpListener = new TcpListener(addr[1], port);
-
-                tcpListener.Start();
-                slave = ModbusTcpSlave.CreateTcp(slaveID, tcpListener);
-                slave.DataStore = Modbus.Data.DataStoreFactory.CreateDefaultDataStore();
-                slave.ModbusSlaveRequestReceived += Slave_ModbusSlaveRequestReceived;
-                slave.Listen();
+                this.modbusTcpConnParam.tcpListener = new TcpListener(this.modbusTcpConnParam.ipAddress, this.modbusTcpConnParam.port);
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "連線IP : " + this.modbusTcpConnParam.ipAddress + "\r\n");
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Port : " + this.modbusTcpConnParam.port + "\r\n");
+                this.modbusTcpConnParam.tcpListener.Start();
+                this.modbusTcpConnParam.slave = ModbusTcpSlave.CreateTcp(this.modbusTcpConnParam.slaveID, this.modbusTcpConnParam.tcpListener);
+                this.modbusTcpConnParam.slave.DataStore = Modbus.Data.DataStoreFactory.CreateDefaultDataStore();
+                this.modbusTcpConnParam.slave.ModbusSlaveRequestReceived += Slave_ModbusSlaveRequestReceived;
+                this.modbusTcpConnParam.slave.Listen();
                 WriteLog("Modbus Slave 已開啟");
-                textBox1.AppendText("Modbus Slave 已開啟 \r\n");
-                
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Modbus Slave 已開啟 \r\n");
+
+                //test---------------------------------------------------------------
+                List<bool> writeDataCoil = new List<bool>() {true,false,true,false,true};
+                List<string> writeDataTemp = new List<string>();
+                List<ushort> writeDataRegisters = new List<ushort>() { 1,2,3,4,5};
+
+                for (int i = 0; i < 5; i++)
+                {
+                    this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[i + 1] = writeDataCoil[i];
+                    this.modbusTcpConnParam.slave.DataStore.InputDiscretes[i + 1] = writeDataCoil[i];
+                    this.modbusTcpConnParam.slave.DataStore.InputRegisters[i + 1] = writeDataRegisters[i];
+                    this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[i+ 1] = writeDataRegisters[i];
+                }
+                //test---------------------------------------------------------------
+
             }
             catch (Exception e)
             {
 
                 WriteLog("StartModbusTcpSlave : " + e.Message);
-                textBox1.AppendText("StartModbusTcpSlave : " + e.Message + "\r\n");
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "StartModbusTcpSlave : " + e.Message + "\r\n");
             }
         }
 
@@ -126,7 +157,8 @@ namespace modbus_server
                 //拆解 mongo data
                 writeDataCoil = ProcessingMongoDataCoils(writeDataTemp);
                 //寫入 data store
-                DataStoreWrite(requestParam, writeDataCoil);
+                //DataStoreWrite(requestParam, writeDataCoil);
+                //TestDataStoreWrite(requestParam, writeDataCoil);
             }
             else
             {
@@ -135,8 +167,10 @@ namespace modbus_server
                 //拆解 mongo data
                 writeDataRegisters = ProcessingMongoDataRegisters(writeDataTemp);
                 //寫入 data store
-                DataStoreWrite(requestParam, writeDataRegisters);
+                //DataStoreWrite(requestParam, writeDataRegisters);
+                //TestDataStoreWrite(requestParam, writeDataRegisters);
             }
+            
         }
         public List<string> LoadMongoDataCoils(RequestParam requestParam)
         {
@@ -163,19 +197,16 @@ namespace modbus_server
 
         public List<bool> ProcessingMongoDataCoils(List<string>mongoData)
         {
-            List<bool> mongoDataCoils = new List<bool>();
+            List<bool> mongoDataCoils = new List<bool>() { true,false,true,false,true};
 
-            mongoDataCoils.Add(true);
-            mongoDataCoils.Add(false);
-            mongoDataCoils.Add(true);
-            mongoDataCoils.Add(false);
-            mongoDataCoils.Add(true);
+            
 
             return mongoDataCoils;
         }
         public List<ushort> ProcessingMongoDataRegisters(List<string> mongoData)
         {
-            List<ushort> mongoDataRegisters = new List<ushort>();
+            List<ushort> mongoDataRegisters = new List<ushort>() { 1,2,3,4,5};
+
 
             
 
@@ -183,7 +214,16 @@ namespace modbus_server
         }
         public void DataStoreWrite(RequestParam requestParam,List<bool> writeData)
         {
-            
+            //Test
+            //----------------------------------------------------------
+            bool count = true;
+            for (ushort i = 0; i < requestParam.numOfRegister; i++)
+            {
+                writeData.Add(count);
+                count = (!count);
+            }
+            //----------------------------------------------------------
+
             switch (requestParam.functionCode)
             {
                 case 1://Read Coil Status
@@ -191,15 +231,15 @@ namespace modbus_server
                     {
                         for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Coil Status : " + slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText("Read Coil Status : " + requestParam.startAddress + i  + " = " + writeData[i] + "\r\n"); }));
+                            this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] = writeData[i];
+                            WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T")+ "   " + "Read Coil Status : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
                         }
                     }
                     catch (Exception e)
                     {
                         WriteLog("Read Coil Status exception : " + e.Message);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText("Read Coil Status exception : " + e.Message + "\r\n"); }));
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status exception : " + e.Message + "\r\n"); }));
                     }
                     break;
                 case 2://Read Input Status
@@ -207,15 +247,15 @@ namespace modbus_server
                     {
                         for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Input Status : " + slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText("Read Input Status : " + requestParam.startAddress + i  + " = " + writeData[i] + "\r\n"); }));
+                            this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] = writeData[i];
+                            WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
                         }
                     }
                     catch (Exception e)
                     {
                         WriteLog("Read Input Status exception : " + e.Message);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText("Read Input Status exception : " + e.Message + "\r\n"); }));
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status exception : " + e.Message + "\r\n"); }));
                     }
                     break;
                 default:
@@ -224,11 +264,14 @@ namespace modbus_server
         }
         public void DataStoreWrite(RequestParam requestParam, List<ushort> writeData)
         {
-            writeData.Add(1);
-            writeData.Add(2);
-            writeData.Add(3);
-            writeData.Add(4);
-            writeData.Add(5);
+            //Test
+            //----------------------------------------------------------
+            for (ushort i = 0; i < requestParam.numOfRegister; i++)
+            {
+                writeData.Add((ushort)Convert.ToInt16(i + 1));
+            }
+            //----------------------------------------------------------
+
             switch (requestParam.functionCode)
             {
                 case 3://Read Holding Registers
@@ -236,16 +279,15 @@ namespace modbus_server
                     {
                         for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Holding Registers : " + slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText("Read Holding Registers : " + requestParam.startAddress + i  + " = " + writeData[i] + "\r\n"); }));
+                            this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeData[i];
+                            WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(requestParam.startAddress +i ) + " = " + writeData[i] + "\r\n"); }));
                         }
                     }
                     catch (Exception e)
                     {
-
                         WriteLog("Read Holding Registers exception : " + e.Message);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText("Read Holding Registers exception : " + e.Message + "\r\n"); }));
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers exception : " + e.Message + "\r\n"); }));
                     }
                     break;
                 case 4://Read Input Registers
@@ -253,33 +295,106 @@ namespace modbus_server
                     {
                         for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Input Registers : " + slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText("Read Input Registers : " + requestParam.startAddress + i  + " = " + writeData[i] + "\r\n"); }));
+                            this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] = writeData[i];
+                            WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
                         }
                     }
                     catch (Exception e)
                     {
                         WriteLog("Read Input Registers exception : " + e.Message);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText("Read Input Registers exception : " + e.Message + "\r\n"); }));
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers exception : " + e.Message + "\r\n"); }));
                     }
                     break;
                 case 5://Force Single Coil
                     break;
                 case 6://Force Single Register
-
                     break;
                 case 15://Force Multiple Coils
-
                     break;
                 case 16://Preset Multiple Registers
-
                     break;
                 default:
                     break;
             }
-            slave.DataStore = null;
         }
+        public void TestDataStoreWrite(RequestParam requestParam, object writeData)
+        {
+            switch (requestParam.functionCode)
+            {
+                case 1://Read Coil Status
+                    try
+                    {
+                        List<bool> writeDataCoil = (List<bool>)writeData;
+                        for (int i = 0; i < requestParam.numOfRegister; i++)
+                        {
+                            this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] = writeDataCoil[i];
+                            WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] + " = " + writeDataCoil[i]);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status : " + Convert.ToInt16(requestParam.startAddress + i) + " = " + writeDataCoil[i] + "\r\n"); }));
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        WriteLog("Read Coil Status exception : " + e.Message);
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status exception : " + e.Message + "\r\n"); }));
+                    }
+                    break;
+                case 2://Read Input Status
+                    try
+                    {
+                        List<bool> writeDataInputDiscreates = (List<bool>)writeData;
+                        for (int i = 0; i < requestParam.numOfRegister; i++)
+                        {
+                            this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] = writeDataInputDiscreates[i];
+                            WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] + " = " + writeDataInputDiscreates[i]);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + Convert.ToInt16(requestParam.startAddress + i) + " = " + writeDataInputDiscreates[i] + "\r\n"); }));
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        WriteLog("Read Input Status exception : " + e.Message);
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status exception : " + e.Message + "\r\n"); }));
+                    }
+                    break;
+                case 3://Read Holding Registers
+                    try
+                    {
+                        List<ushort> writeDataHoldingRegisters = (List<ushort>)writeData;
+                        for (int i = 0; i < requestParam.numOfRegister; i++)
+                        {
+                            this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeDataHoldingRegisters[i];
+                            WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] + " = " + writeDataHoldingRegisters[i]);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(requestParam.startAddress + i) + " = " + writeDataHoldingRegisters[i] + "\r\n"); }));
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        WriteLog("Read Holding Registers exception : " + e.Message);
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers exception : " + e.Message + "\r\n"); }));
+                    }
+                    break;
+                case 4://Read Input Registers
+                    try
+                    {
+                        List<ushort> writeDataInputRegisters = (List<ushort>)writeData;
+                        for (int i = 0; i < requestParam.numOfRegister; i++)
+                        {
+                            this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] = writeDataInputRegisters[i];
+                            WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] + " = " + writeDataInputRegisters[i]);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(requestParam.startAddress + i) + " = " + writeDataInputRegisters[i] + "\r\n"); }));
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        WriteLog("Read Input Registers exception : " + e.Message);
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers exception : " + e.Message + "\r\n"); }));
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+
         public void WriteLog(string logMessage)
         {
             DateTime value = DateTime.Now;
@@ -288,6 +403,10 @@ namespace modbus_server
             string timeHMS = value.ToString("HH:mm:ss");
             try
             {
+                if (!Directory.Exists(logAddress))
+                {
+                    Directory.CreateDirectory(logAddress);
+                }
                 StreamWriter sw = new StreamWriter(logAddress + "Log_" + timeYMD + ".txt", true);
                 sw.WriteLine("[" + timeHMS + "]" + " : " + logMessage);
                 sw.Close();
