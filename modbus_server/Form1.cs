@@ -78,7 +78,7 @@ namespace modbus_server
                 this.modbusTcpConnParam.tcpListener.Stop();
             }
             this.modbusTcpConnParam.ipAddress = (IPAddress)comboBox1.SelectedItem;
-            StartModbusTcpSlave();
+            //StartModbusTcpSlave();
         }
 
         public void MongoDBConnect()
@@ -416,5 +416,12 @@ namespace modbus_server
                 Console.WriteLine(ee.Message);
             }
         }
+
+        private void linkLabel1_MouseClick(object sender, MouseEventArgs e)
+        {
+            FormAbout formAboutPop = new FormAbout();
+            formAboutPop.Show();
+        }
+        
     }
 }

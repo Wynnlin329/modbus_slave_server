@@ -13,4 +13,5 @@ namespace modbus_server
         public int startAddress { get; set; }
         public int numOfRegister { get; set; }
     }
+    
 }
