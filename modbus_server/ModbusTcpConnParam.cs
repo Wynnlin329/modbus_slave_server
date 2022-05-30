@@ -18,5 +18,6 @@ namespace modbus_server
         public TcpListener tcpListener { get; set; }
         public IPAddress ipAddress { get; set; }
         public int port { get; set; }
+        
     }
 }

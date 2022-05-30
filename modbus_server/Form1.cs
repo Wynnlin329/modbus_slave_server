@@ -5,6 +5,8 @@ using System.IO.Ports;
 using System.Net;
 using System.Net.Sockets;
 using Modbus.Device;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json;
 using MongoDB;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -15,13 +17,15 @@ namespace modbus_server
     {
         ModbusTcpConnParam modbusTcpConnParam = new ModbusTcpConnParam();
         MongoDBConnParam mongoDBConnParam = new MongoDBConnParam();
+        JObject json = new JObject();
         string logAddress = @"D:\log\";
-        string macAddress;
+        string cpuID;
         public Form1()
         {
             InitializeComponent();
-            //macAddress = GetMacAddress();
-            //if (macAddress == "00:E0:4C:68:3C:F5")//00:E0:4C:68:3C:F5(test)     04:42:1A:CB:96:CA(remote)
+            InitMappingData();
+            //cpuID = GetCPUID();
+            //if (cpuID == "BFEBFBFF000806C1")//BFEBFBFF000806C1(test)     04:42:1A:CB:96:CA(remote)
             //{
             //    //MongoDBConnect();
             //    StartModbusTcpSlave();
@@ -31,6 +35,33 @@ namespace modbus_server
             //    throw new Exception("系統異常");
             //}
             IPAddressInit();
+        }
+        public void InitMappingData()
+        {
+            this.json = ExcelHelper.ExcelToJson(@"D:\mappingTable.xlsx");
+        }
+        public string GetCPUID()
+        {
+            try
+            {
+                //獲取CPUID
+                string mac = "";
+                ManagementClass mc = new ManagementClass("Win32_Processor");
+                ManagementObjectCollection moc = mc.GetInstances();
+                foreach (ManagementObject mo in moc)
+                {
+                    mac = mo["ProcessorId"].ToString();
+                }
+                moc = null;
+                mc = null;
+                //WriteLog("GetCPUID : " + mac);//之後要刪
+                return mac;
+            }
+            catch (Exception e)
+            {
+                //WriteLog("GetCPUID Excption : " + e.Message);//之後要刪
+                return "unknow";
+            }
         }
         public string GetMacAddress()
         {
@@ -78,14 +109,14 @@ namespace modbus_server
                 this.modbusTcpConnParam.tcpListener.Stop();
             }
             this.modbusTcpConnParam.ipAddress = (IPAddress)comboBox1.SelectedItem;
-            //StartModbusTcpSlave();
+            StartModbusTcpSlave();
         }
 
         public void MongoDBConnect()
         {
             try
             {
-                this.mongoDBConnParam.connectionString = "mongodb://wynn:0000@192.168.6.119:27017,192.168.6.120:27017,192.168.6.122:27017/?replicaSet=rs0";
+                this.mongoDBConnParam.connectionString = "mongodb://wynn:0000@192.168.56.101:27017,192.168.56.102:27017,192.168.56.103:27017/?replicaSet=rs0";
                 this.mongoDBConnParam.mongoClient = new MongoClient(this.mongoDBConnParam.connectionString);
                 this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase("test");
                 WriteLog("連線至DataBase : " + this.mongoDBConnParam.mongoDataBase );
@@ -144,13 +175,29 @@ namespace modbus_server
                 startAddress = e.Message.MessageFrame[3],
                 numOfRegister = e.Message.MessageFrame[5]
             };
+            List<JToken> jsonList = new List<JToken>();
             List<bool> writeDataCoil = new List<bool>();
             List<string> writeDataTemp = new List<string>();
             List<ushort> writeDataRegisters = new List<ushort>();
 
             WriteLog("進入Event : functionCode : "+ requestParam.functionCode + " startAddress : " + requestParam.startAddress + " numOfRegister : " + requestParam.numOfRegister);
 
-            if(requestParam.functionCode == 1 || requestParam.functionCode == 2)
+            switch (requestParam.functionCode)
+            {
+                case 1:
+                    requestParam.functionName = "Coil";
+                    break;
+                case 2:
+                    requestParam.functionName = "InputStatus";
+                    break;
+                case 3:
+                    requestParam.functionName = "HoldingRegister";
+                    break;
+                case 4:
+                    requestParam.functionName = "InputRegister";
+                    break;
+            }
+            if (requestParam.functionCode == 1 || requestParam.functionCode == 2)
             {
                 //讀取 mongo data
                 writeDataTemp = LoadMongoDataCoils(requestParam);
