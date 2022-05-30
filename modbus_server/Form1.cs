@@ -17,6 +17,7 @@ namespace modbus_server
     {
         ModbusTcpConnParam modbusTcpConnParam = new ModbusTcpConnParam();
         MongoDBConnParam mongoDBConnParam = new MongoDBConnParam();
+        MongoDBQueryParam mongoDBQueryParam = new MongoDBQueryParam();
         JObject json = new JObject();
         string logAddress = @"D:\log\";
         string cpuID;
@@ -35,6 +36,7 @@ namespace modbus_server
             //    throw new Exception("系統異常");
             //}
             IPAddressInit();
+            MongoDBConnect();
         }
         public void InitMappingData()
         {
@@ -118,9 +120,9 @@ namespace modbus_server
             {
                 this.mongoDBConnParam.connectionString = "mongodb://wynn:0000@192.168.56.101:27017,192.168.56.102:27017,192.168.56.103:27017/?replicaSet=rs0";
                 this.mongoDBConnParam.mongoClient = new MongoClient(this.mongoDBConnParam.connectionString);
-                this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase("test");
-                WriteLog("連線至DataBase : " + this.mongoDBConnParam.mongoDataBase );
-                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "連線至DataBase : " + this.mongoDBConnParam.mongoDataBase + "\r\n");
+                this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase("AFC");
+                WriteLog("連線至DataBase : " + this.mongoDBConnParam.mongoDataBase.DatabaseNamespace );
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "連線至DataBase : " + this.mongoDBConnParam.mongoDataBase.DatabaseNamespace + "\r\n");
             }
             catch (Exception e)
             {
@@ -175,7 +177,7 @@ namespace modbus_server
                 startAddress = e.Message.MessageFrame[3],
                 numOfRegister = e.Message.MessageFrame[5]
             };
-            List<JToken> jsonList = new List<JToken>();
+            List<JToken> mongoMappingList = new List<JToken>();
             List<bool> writeDataCoil = new List<bool>();
             List<string> writeDataTemp = new List<string>();
             List<ushort> writeDataRegisters = new List<ushort>();
@@ -197,185 +199,248 @@ namespace modbus_server
                     requestParam.functionName = "InputRegister";
                     break;
             }
-            if (requestParam.functionCode == 1 || requestParam.functionCode == 2)
+            //取出要Query MongoDB的範圍
+            mongoMappingList = MongoMappingListCreate(requestParam);
+            //Query MongoDB 取得資料
+            writeDataTemp = MongoDataCollection(mongoMappingList);
+            //將資料寫入Modbus DataStore
+            DataStoreWrite(requestParam, writeDataTemp);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            //if (requestParam.functionCode == 1 || requestParam.functionCode == 2)
+            //{
+            //    //讀取 mongo data
+            //    writeDataTemp = MongoMappingListCreate(requestParam);
+            //    //拆解 mongo data
+            //    writeDataCoil = ProcessingMongoDataCoils(writeDataTemp);
+            //    //寫入 data store
+            //    //DataStoreWrite(requestParam, writeDataCoil);
+            //    //TestDataStoreWrite(requestParam, writeDataCoil);
+            //}
+            //else
+            //{
+            //    //讀取 mongo data
+            //    writeDataTemp = LoadMongoDataRegisters(requestParam);
+            //    //拆解 mongo data
+            //    writeDataRegisters = ProcessingMongoDataRegisters(writeDataTemp);
+            //    //寫入 data store
+            //    //DataStoreWrite(requestParam, writeDataRegisters);
+            //    //TestDataStoreWrite(requestParam, writeDataRegisters);
+            //}
+        }
+        public List<JToken> MongoMappingListCreate(RequestParam requestParam)
+        {
+            List<JToken> mongoMappingList = new List<JToken>();
+            int registerCount = 0;
+            var ob = json[requestParam.functionName];
+            for (int i = 0; i < ob.Count(); i++)
             {
-                //讀取 mongo data
-                writeDataTemp = LoadMongoDataCoils(requestParam);
-                //拆解 mongo data
-                writeDataCoil = ProcessingMongoDataCoils(writeDataTemp);
-                //寫入 data store
-                //DataStoreWrite(requestParam, writeDataCoil);
-                //TestDataStoreWrite(requestParam, writeDataCoil);
+                int regi = (int)ob[i]["Registers"];
+                if (regi > requestParam.startAddress)
+                {
+                    mongoMappingList.Add(ob[i]);
+                    registerCount++;
+                    if (requestParam.numOfRegister == registerCount)
+                    {
+                        break;
+                    }
+                }
             }
-            else
+            return mongoMappingList;
+        }
+
+        public List<string> MongoDataCollection(List<JToken> mongoMappingList)
+        {
+            List<string> mongoDataList = new List<string>();
+            for (int i = 0; i < mongoMappingList.Count(); i++)
             {
-                //讀取 mongo data
-                writeDataTemp = LoadMongoDataRegisters(requestParam);
-                //拆解 mongo data
-                writeDataRegisters = ProcessingMongoDataRegisters(writeDataTemp);
-                //寫入 data store
-                //DataStoreWrite(requestParam, writeDataRegisters);
-                //TestDataStoreWrite(requestParam, writeDataRegisters);
+                this.mongoDBQueryParam.collection = (string)mongoMappingList[i]["Collection"];
+                this.mongoDBQueryParam.database = (string)mongoMappingList[i]["Database"];
+                this.mongoDBQueryParam.registers = (string)mongoMappingList[i]["Registers"];
+                this.mongoDBQueryParam.functionCodes = (string)mongoMappingList[i]["FunctionCode"];
+                this.mongoDBQueryParam.field = (string)mongoMappingList[i]["Field"];
+                string mongoData = QueryData(this.mongoDBQueryParam);
+                mongoDataList.Add(mongoData);
             }
-            
-        }
-        public List<string> LoadMongoDataCoils(RequestParam requestParam)
-        {
-            List<string> mongoData = new List<string>();
-
-            //var collection = mongoDataBase.GetCollection<BsonDocument>("coil");
-            //var filter = Builders<BsonDocument>.Filter.Eq("2", "false");
-            //var doc = collection.Find(filter).FirstOrDefault();
-            //Console.WriteLine(doc.ToString());
-
-            return mongoData;
-        }
-        public List<string> LoadMongoDataRegisters(RequestParam requestParam)
-        {
-            List<string> mongoData = new List<string>();
-
-            //var collection = mongoDataBase.GetCollection<BsonDocument>("coil");
-            //var filter = Builders<BsonDocument>.Filter.Eq("2", "false");
-            //var doc = collection.Find(filter).FirstOrDefault();
-            //Console.WriteLine(doc.ToString());
-
-            return mongoData;
+            return mongoDataList;
         }
 
-        public List<bool> ProcessingMongoDataCoils(List<string>mongoData)
+        public string QueryData(MongoDBQueryParam mongoDBQueryParam)
         {
-            List<bool> mongoDataCoils = new List<bool>() { true,false,true,false,true};
+            var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
 
-            
+            var filter = Builders<BsonDocument>.Filter.Empty;
 
-            return mongoDataCoils;
+            var doc = collections.Find(filter).ToList().Last();
+            //每筆資料最大或最小再修正
+            Console.WriteLine(doc[mongoDBQueryParam.field].ToString());
+            return doc[mongoDBQueryParam.field].ToString();
         }
-        public List<ushort> ProcessingMongoDataRegisters(List<string> mongoData)
-        {
-            List<ushort> mongoDataRegisters = new List<ushort>() { 1,2,3,4,5};
 
+        //public List<string> LoadMongoDataRegisters(RequestParam requestParam)
+        //{
+        //    List<string> mongoData = new List<string>();
+
+        //    //var collection = mongoDataBase.GetCollection<BsonDocument>("coil");
+        //    //var filter = Builders<BsonDocument>.Filter.Eq("2", "false");
+        //    //var doc = collection.Find(filter).FirstOrDefault();
+        //    //Console.WriteLine(doc.ToString());
+
+        //    return mongoData;
+        //}
+
+        //public List<bool> ProcessingMongoDataCoils(List<string>mongoData)
+        //{
+        //    List<bool> mongoDataCoils = new List<bool>() { true,false,true,false,true};
 
             
 
-            return mongoDataRegisters;
-        }
-        public void DataStoreWrite(RequestParam requestParam,List<bool> writeData)
-        {
-            //Test
-            //----------------------------------------------------------
-            bool count = true;
-            for (ushort i = 0; i < requestParam.numOfRegister; i++)
-            {
-                writeData.Add(count);
-                count = (!count);
-            }
-            //----------------------------------------------------------
+        //    return mongoDataCoils;
+        //}
+        //public List<ushort> ProcessingMongoDataRegisters(List<string> mongoData)
+        //{
+        //    List<ushort> mongoDataRegisters = new List<ushort>() { 1,2,3,4,5};
 
+
+            
+
+        //    return mongoDataRegisters;
+        //}
+        //public void DataStoreWrite(RequestParam requestParam,List<bool> writeData)
+        //{
+        //    //Test
+        //    //----------------------------------------------------------
+        //    bool count = true;
+        //    for (ushort i = 0; i < requestParam.numOfRegister; i++)
+        //    {
+        //        writeData.Add(count);
+        //        count = (!count);
+        //    }
+        //    //----------------------------------------------------------
+
+        //    switch (requestParam.functionCode)
+        //    {
+        //        case 1://Read Coil Status
+        //            try
+        //            {
+        //                for (int i = 0; i < requestParam.numOfRegister; i++)
+        //                {
+        //                    this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] = writeData[i];
+        //                    WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
+        //                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T")+ "   " + "Read Coil Status : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
+        //                }
+        //            }
+        //            catch (Exception e)
+        //            {
+        //                WriteLog("Read Coil Status exception : " + e.Message);
+        //                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status exception : " + e.Message + "\r\n"); }));
+        //            }
+        //            break;
+        //        case 2://Read Input Status
+        //            try
+        //            {
+        //                for (int i = 0; i < requestParam.numOfRegister; i++)
+        //                {
+        //                    this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] = writeData[i];
+        //                    WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
+        //                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
+        //                }
+        //            }
+        //            catch (Exception e)
+        //            {
+        //                WriteLog("Read Input Status exception : " + e.Message);
+        //                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status exception : " + e.Message + "\r\n"); }));
+        //            }
+        //            break;
+        //        default:
+        //            break;
+        //    }
+        //}
+        //public void DataStoreWrite(RequestParam requestParam, List<ushort> writeData)
+        //{
+        //    //Test
+        //    //----------------------------------------------------------
+        //    for (ushort i = 0; i < requestParam.numOfRegister; i++)
+        //    {
+        //        writeData.Add((ushort)Convert.ToInt16(i + 1));
+        //    }
+        //    //----------------------------------------------------------
+
+        //    switch (requestParam.functionCode)
+        //    {
+        //        case 3://Read Holding Registers
+        //            try
+        //            {
+        //                for (int i = 0; i < requestParam.numOfRegister; i++)
+        //                {
+        //                    this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeData[i];
+        //                    WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
+        //                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(requestParam.startAddress +i ) + " = " + writeData[i] + "\r\n"); }));
+        //                }
+        //            }
+        //            catch (Exception e)
+        //            {
+        //                WriteLog("Read Holding Registers exception : " + e.Message);
+        //                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers exception : " + e.Message + "\r\n"); }));
+        //            }
+        //            break;
+        //        case 4://Read Input Registers
+        //            try
+        //            {
+        //                for (int i = 0; i < requestParam.numOfRegister; i++)
+        //                {
+        //                    this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] = writeData[i];
+        //                    WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
+        //                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
+        //                }
+        //            }
+        //            catch (Exception e)
+        //            {
+        //                WriteLog("Read Input Registers exception : " + e.Message);
+        //                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers exception : " + e.Message + "\r\n"); }));
+        //            }
+        //            break;
+        //        case 5://Force Single Coil
+        //            break;
+        //        case 6://Force Single Register
+        //            break;
+        //        case 15://Force Multiple Coils
+        //            break;
+        //        case 16://Preset Multiple Registers
+        //            break;
+        //        default:
+        //            break;
+        //    }
+        //}
+        public void DataStoreWrite(RequestParam requestParam, object writeData)
+        {
             switch (requestParam.functionCode)
             {
                 case 1://Read Coil Status
                     try
                     {
+                        List<string> writeDataCoil = (List<string>)writeData;
                         for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T")+ "   " + "Read Coil Status : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        WriteLog("Read Coil Status exception : " + e.Message);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status exception : " + e.Message + "\r\n"); }));
-                    }
-                    break;
-                case 2://Read Input Status
-                    try
-                    {
-                        for (int i = 0; i < requestParam.numOfRegister; i++)
-                        {
-                            this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        WriteLog("Read Input Status exception : " + e.Message);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status exception : " + e.Message + "\r\n"); }));
-                    }
-                    break;
-                default:
-                    break;
-            }
-        }
-        public void DataStoreWrite(RequestParam requestParam, List<ushort> writeData)
-        {
-            //Test
-            //----------------------------------------------------------
-            for (ushort i = 0; i < requestParam.numOfRegister; i++)
-            {
-                writeData.Add((ushort)Convert.ToInt16(i + 1));
-            }
-            //----------------------------------------------------------
-
-            switch (requestParam.functionCode)
-            {
-                case 3://Read Holding Registers
-                    try
-                    {
-                        for (int i = 0; i < requestParam.numOfRegister; i++)
-                        {
-                            this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(requestParam.startAddress +i ) + " = " + writeData[i] + "\r\n"); }));
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        WriteLog("Read Holding Registers exception : " + e.Message);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers exception : " + e.Message + "\r\n"); }));
-                    }
-                    break;
-                case 4://Read Input Registers
-                    try
-                    {
-                        for (int i = 0; i < requestParam.numOfRegister; i++)
-                        {
-                            this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] = writeData[i];
-                            WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        WriteLog("Read Input Registers exception : " + e.Message);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers exception : " + e.Message + "\r\n"); }));
-                    }
-                    break;
-                case 5://Force Single Coil
-                    break;
-                case 6://Force Single Register
-                    break;
-                case 15://Force Multiple Coils
-                    break;
-                case 16://Preset Multiple Registers
-                    break;
-                default:
-                    break;
-            }
-        }
-        public void TestDataStoreWrite(RequestParam requestParam, object writeData)
-        {
-            switch (requestParam.functionCode)
-            {
-                case 1://Read Coil Status
-                    try
-                    {
-                        List<bool> writeDataCoil = (List<bool>)writeData;
-                        for (int i = 0; i < requestParam.numOfRegister; i++)
-                        {
-                            this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] = writeDataCoil[i];
+                            this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] = bool.Parse( writeDataCoil[i]);
                             WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] + " = " + writeDataCoil[i]);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status : " + Convert.ToInt16(requestParam.startAddress + i) + " = " + writeDataCoil[i] + "\r\n"); }));
                         }
@@ -389,10 +454,10 @@ namespace modbus_server
                 case 2://Read Input Status
                     try
                     {
-                        List<bool> writeDataInputDiscreates = (List<bool>)writeData;
+                        List<string> writeDataInputDiscreates = (List<string>)writeData;
                         for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] = writeDataInputDiscreates[i];
+                            this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] = bool.Parse(writeDataInputDiscreates[i]);
                             WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] + " = " + writeDataInputDiscreates[i]);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + Convert.ToInt16(requestParam.startAddress + i) + " = " + writeDataInputDiscreates[i] + "\r\n"); }));
                         }
@@ -406,10 +471,11 @@ namespace modbus_server
                 case 3://Read Holding Registers
                     try
                     {
-                        List<ushort> writeDataHoldingRegisters = (List<ushort>)writeData;
+                        List<string> writeDataHoldingRegisters = (List<string>)writeData;
                         for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeDataHoldingRegisters[i];
+                            this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = ushort.Parse(writeDataHoldingRegisters[i]);
+                            //this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeDataHoldingRegisters[i];
                             WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] + " = " + writeDataHoldingRegisters[i]);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(requestParam.startAddress + i) + " = " + writeDataHoldingRegisters[i] + "\r\n"); }));
                         }
@@ -423,10 +489,10 @@ namespace modbus_server
                 case 4://Read Input Registers
                     try
                     {
-                        List<ushort> writeDataInputRegisters = (List<ushort>)writeData;
+                        List<string> writeDataInputRegisters = (List<string>)writeData;
                         for (int i = 0; i < requestParam.numOfRegister; i++)
                         {
-                            this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] = writeDataInputRegisters[i];
+                            this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] = ushort.Parse(writeDataInputRegisters[i]);
                             WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] + " = " + writeDataInputRegisters[i]);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(requestParam.startAddress + i) + " = " + writeDataInputRegisters[i] + "\r\n"); }));
                         }

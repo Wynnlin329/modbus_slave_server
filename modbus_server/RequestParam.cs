@@ -10,7 +10,7 @@ namespace modbus_server
     {
         public int slaveID { get; set; }
         public int functionCode { get; set; }
-        public string functionName { get; set; }
+        public string functionName { get;set; }
         public int startAddress { get; set; }
         public int numOfRegister { get; set; }
     }

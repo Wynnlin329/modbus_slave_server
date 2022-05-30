@@ -17,4 +17,13 @@ namespace modbus_server
         public IMongoDatabase mongoDataBase { get; set; }
         public string connectionString { get; set; }
     }
+
+    public class MongoDBQueryParam
+    {
+        public string collection { get; set; }
+        public string database { get; set; }
+        public string registers { get; set; }
+        public string functionCodes { get; set; }
+        public string field { get; set; }
+    }
 }
