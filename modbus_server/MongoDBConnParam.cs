@@ -25,5 +25,6 @@ namespace modbus_server
         public string registers { get; set; }
         public string functionCodes { get; set; }
         public string field { get; set; }
+        public string type { get; set; }
     }
 }

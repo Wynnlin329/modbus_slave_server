@@ -25,6 +25,10 @@ namespace modbus_server
         string mongoConnectionString = "mongodb://wynn:0000@192.168.56.101:27017,192.168.56.102:27017,192.168.56.103:27017/?replicaSet=rs0";
         string logAddress = @"D:\log\";
         string cpuID;
+        bool textBoxMessageCloseFlag = false;
+        int queryTimeInterval = 1000;
+        int errorCount = 0;
+        int updateCount = 0;
         public Form1()
         {
             InitializeComponent();
@@ -43,7 +47,6 @@ namespace modbus_server
             InitIPAddress();
             MongoDBConnect();
             SetPollingMongoDBTimer();
-
         }
         public void InitMappingData()
         {
@@ -55,6 +58,7 @@ namespace modbus_server
                     this.mongoMappingList.Add(mapping);
                 }
             }
+            WriteLog("InitMappingData 資料比數 : " + this.mongoMappingList.Count());
         }
         public void SetPollingMongoDBTimer()
         {
@@ -67,10 +71,9 @@ namespace modbus_server
                 {
                     //取出MongoDB的資料
                     writeDataTemp = MongoDataCollection(this.mongoMappingList);
-                    //
                     //將資料寫入Modbus DataStore
                     DataStoreWrite(this.mongoMappingList, writeDataTemp);
-                    Thread.Sleep(2000);
+                    Thread.Sleep(queryTimeInterval);
                 }
             });
         }
@@ -158,8 +161,10 @@ namespace modbus_server
             }
             catch (Exception e)
             {
+                errorCount++;
                 WriteLog("MongoDBConnect  Exception : " + e.Message);
                 textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDBConnect  Exception : " + e.Message + "\r\n");
+                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
         }
         
@@ -195,98 +200,42 @@ namespace modbus_server
             }
             catch (Exception e)
             {
-
+                errorCount++;
                 WriteLog("StartModbusTcpSlave : " + e.Message);
                 textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "StartModbusTcpSlave : " + e.Message + "\r\n");
+                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
         }
 
         private void Slave_ModbusSlaveRequestReceived(object? sender, ModbusSlaveRequestEventArgs e)
         {
-            //RequestParam requestParam = new RequestParam()
-            //{
-            //    functionCode = e.Message.MessageFrame[1],
-            //    startAddress = e.Message.MessageFrame[3],
-            //    numOfRegister = e.Message.MessageFrame[5]
-            //};
-            //List<JToken> mongoMappingList = new List<JToken>();
-            //List<bool> writeDataCoil = new List<bool>();
-            //List<string> writeDataTemp = new List<string>();
-            //List<ushort> writeDataRegisters = new List<ushort>();
-
-            //WriteLog("進入Event : functionCode : "+ requestParam.functionCode + " startAddress : " + requestParam.startAddress + " numOfRegister : " + requestParam.numOfRegister);
-
-            //switch (requestParam.functionCode)
-            //{
-            //    case 1:
-            //        requestParam.functionName = "Coil";
-            //        break;
-            //    case 2:
-            //        requestParam.functionName = "InputStatus";
-            //        break;
-            //    case 3:
-            //        requestParam.functionName = "HoldingRegister";
-            //        break;
-            //    case 4:
-            //        requestParam.functionName = "InputRegister";
-            //        break;
-            //}
-            //WriteLog("functionName : " + requestParam.functionName);
-            //取出要Query MongoDB的範圍
-            //mongoMappingList = MongoMappingListCreate(requestParam);
-            //Query MongoDB 取得資料
-            //writeDataTemp = MongoDataCollection(mongoMappingList);
-            //將資料寫入Modbus DataStore
-            //DataStoreWrite(requestParam, writeDataTemp);
-
-
-
-
-
-            //if (requestParam.functionCode == 1 || requestParam.functionCode == 2)
-            //{
-            //    //讀取 mongo data
-            //    writeDataTemp = MongoMappingListCreate(requestParam);
-            //    //拆解 mongo data
-            //    writeDataCoil = ProcessingMongoDataCoils(writeDataTemp);
-            //    //寫入 data store
-            //    //DataStoreWrite(requestParam, writeDataCoil);
-            //    //TestDataStoreWrite(requestParam, writeDataCoil);
-            //}
-            //else
-            //{
-            //    //讀取 mongo data
-            //    writeDataTemp = LoadMongoDataRegisters(requestParam);
-            //    //拆解 mongo data
-            //    writeDataRegisters = ProcessingMongoDataRegisters(writeDataTemp);
-            //    //寫入 data store
-            //    //DataStoreWrite(requestParam, writeDataRegisters);
-            //    //TestDataStoreWrite(requestParam, writeDataRegisters);
-            //}
+            
         }
-        public List<JToken> MongoMappingListCreate(RequestParam requestParam)
-        {
+        //public List<JToken> MongoMappingListCreate(RequestParam requestParam)
+        //{
 
-            int registerCount = 0;
-            try
-            {
-                var ob = json[requestParam.functionName];
-                for (int i = 0; i < ob.Count(); i++)
-                {
-                    mongoMappingList.Add(ob[i]);
-                }
-            }
-            catch (Exception e)
-            {
-                WriteLog("Exception MongoMappingListCreate : " + e.Message);
-            }
-            WriteLog("MongoMappingListCreate : " + mongoMappingList.Count());
-            return mongoMappingList;
-        }
+        //    int registerCount = 0;
+        //    try
+        //    {
+        //        var ob = json[requestParam.functionName];
+        //        for (int i = 0; i < ob.Count(); i++)
+        //        {
+        //            mongoMappingList.Add(ob[i]);
+        //        }
+        //    }
+        //    catch (Exception e)
+        //    {
+        //        WriteLog("Exception MongoMappingListCreate : " + e.Message);
+        //    }
+        //    WriteLog("MongoMappingListCreate : " + mongoMappingList.Count());
+        //    return mongoMappingList;
+        //}
 
         public List<string> MongoDataCollection(List<JToken> mongoMappingList)
         {
             List<string> mongoDataList = new List<string>();
+            List<string> mongoDataListTMP = new List<string>();
+            List<string> mongoDataTest = new List<string>();
             try
             {
                 for (int i = 0; i < mongoMappingList.Count(); i++)
@@ -296,169 +245,132 @@ namespace modbus_server
                     this.mongoDBQueryParam.registers = (string)mongoMappingList[i]["Registers"];
                     this.mongoDBQueryParam.functionCodes = (string)mongoMappingList[i]["FunctionCode"];
                     this.mongoDBQueryParam.field = (string)mongoMappingList[i]["Field"];
-                    string mongoData = QueryData(this.mongoDBQueryParam);
-                    mongoDataList.Add(mongoData);
-                    WriteLog("MongoDataCollection mongoData : " + mongoData);
+                    this.mongoDBQueryParam.type = (string)mongoMappingList[i]["Type"];
+
+                    mongoDataListTMP = QueryData(this.mongoDBQueryParam);
+                    foreach (var mongoData in mongoDataListTMP)
+                    {
+                        mongoDataList.Add(mongoData);
+                        mongoDataTest.Add(mongoData);//test
+                        WriteLog("MongoDataCollection mongoData : " + mongoData);
+                    }
+                    mongoDataListTMP.Clear();
                 }
+                WriteLog("MongoDataCollection mongoMappingList : " + mongoMappingList.Count());
+                WriteLog("MongoDataCollection mongoDataList : " + mongoDataList.Count());
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "點位數量 : " + mongoMappingList.Count() + " 資料數量 : " + mongoDataList.Count() + "\r\n"); }));
             }
             catch (Exception e)
             {
                 WriteLog("Exception MongoDataCollection : " + e.Message);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception MongoDataCollection : " + e.Message + "\r\n"); }));
+                errorCount++;
+                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
+            //Test---------------------------------------------------------------------
+            List<string> testSample = new List<string>() { "1", "0", "1", "0", "0", "1", "0", "1", "4", "4", "2", "10", "4", "4", "4", "4", "39322", "16025", "4719", "15235", "29884", "15379", "62588", "184", "1", "5", "0", "1", "2", "9", "2", "4", "3", "6", "7", "4", "4", "1", "0", "4", "3", "3", "4", "3", "3", "7", "5", "2", "4", "0", "4", "6", "5", "2", "2", "1", "0", "5", "0", "0", "0", "0", "0" };
+            if(mongoDataTest.Count() != mongoDataList.Count())
+            {
+                errorCount++;
+                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "資料筆數有誤" + "\r\n"); }));
+                WriteLog("資料筆數有誤");
+            }
+            else if (!mongoDataList.SequenceEqual(testSample))
+            {
+                errorCount++;
+                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "資料內容有誤" + "\r\n"); }));
+                WriteLog("資料內容有誤");
+            }
+            //---------------------------------------------------------------------
             WriteLog("MongoDataCollection : " + mongoDataList.Count());
+            mongoDataTest.Clear();
             return mongoDataList;
         }
 
-        public string QueryData(MongoDBQueryParam mongoDBQueryParam)
+        public List<string> QueryData(MongoDBQueryParam mongoDBQueryParam)
         {
-
+            List<string> mongoDataList = new List<string>();
             this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase(this.mongoDBQueryParam.database);
             var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
 
             var filter = Builders<BsonDocument>.Filter.Empty;
 
             var doc = collections.Find(filter).ToList().Last();
-            Console.WriteLine(doc[mongoDBQueryParam.field].ToString());
-            return doc[mongoDBQueryParam.field].ToString();
+            //判斷型態
+            switch (mongoDBQueryParam.type)
+            {
+                case "int32":
+                    try
+                    {
+                        //this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase(this.mongoDBQueryParam.database);
+                        //var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
+
+                        //var filter = Builders<BsonDocument>.Filter.Empty;
+
+                        //var doc = collections.Find(filter).ToList().Last();
+                        Console.WriteLine(doc[mongoDBQueryParam.field].ToString());
+                        WriteLog("QueryData : " + doc[mongoDBQueryParam.field].ToString());
+                        mongoDataList = Int32ConvertToInt16(doc[mongoDBQueryParam.field]);
+                    }
+                    catch (Exception e)
+                    {
+                        WriteLog("Exception QueryData : " + e.Message);
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
+                        errorCount++;
+                        label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                    }
+                    break;
+                case "float":
+                    try
+                    {
+                        //this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase(this.mongoDBQueryParam.database);
+                        //var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
+
+                        //var filter = Builders<BsonDocument>.Filter.Empty;
+
+                        //var doc = collections.Find(filter).ToList().Last();
+                        Console.WriteLine(doc[mongoDBQueryParam.field].ToString());
+                        WriteLog("QueryData : " + doc[mongoDBQueryParam.field].ToString());
+                        mongoDataList = FloatConvertToInt16(doc[mongoDBQueryParam.field]);
+                    }
+                    catch (Exception e)
+                    {
+                        WriteLog("Exception QueryData : " + e.Message);
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
+                        errorCount++;
+                        label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                    }
+                    break;
+                default:
+                    try
+                    {
+                        //this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase(this.mongoDBQueryParam.database);
+                        //var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
+
+                        //var filter = Builders<BsonDocument>.Filter.Empty;
+
+                        //var doc = collections.Find(filter).ToList().Last();
+                        Console.WriteLine(doc[mongoDBQueryParam.field].ToString());
+                        WriteLog("QueryData : " + doc[mongoDBQueryParam.field].ToString());
+                        mongoDataList.Add(doc[mongoDBQueryParam.field].ToString());
+                    }
+                    catch (Exception e)
+                    {
+                        WriteLog("Exception QueryData : " + e.Message);
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
+                        errorCount++;
+                        label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                    }
+                    break;
+            }
+            return mongoDataList;
         }
 
-        //public List<string> LoadMongoDataRegisters(RequestParam requestParam)
-        //{
-        //    List<string> mongoData = new List<string>();
-
-        //    //var collection = mongoDataBase.GetCollection<BsonDocument>("coil");
-        //    //var filter = Builders<BsonDocument>.Filter.Eq("2", "false");
-        //    //var doc = collection.Find(filter).FirstOrDefault();
-        //    //Console.WriteLine(doc.ToString());
-
-        //    return mongoData;
-        //}
-
-        //public List<bool> ProcessingMongoDataCoils(List<string>mongoData)
-        //{
-        //    List<bool> mongoDataCoils = new List<bool>() { true,false,true,false,true};
-
-            
-
-        //    return mongoDataCoils;
-        //}
-        //public List<ushort> ProcessingMongoDataRegisters(List<string> mongoData)
-        //{
-        //    List<ushort> mongoDataRegisters = new List<ushort>() { 1,2,3,4,5};
-
-
-            
-
-        //    return mongoDataRegisters;
-        //}
-        //public void DataStoreWrite(RequestParam requestParam,List<bool> writeData)
-        //{
-        //    //Test
-        //    //----------------------------------------------------------
-        //    bool count = true;
-        //    for (ushort i = 0; i < requestParam.numOfRegister; i++)
-        //    {
-        //        writeData.Add(count);
-        //        count = (!count);
-        //    }
-        //    //----------------------------------------------------------
-
-        //    switch (requestParam.functionCode)
-        //    {
-        //        case 1://Read Coil Status
-        //            try
-        //            {
-        //                for (int i = 0; i < requestParam.numOfRegister; i++)
-        //                {
-        //                    this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] = writeData[i];
-        //                    WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-        //                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T")+ "   " + "Read Coil Status : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
-        //                }
-        //            }
-        //            catch (Exception e)
-        //            {
-        //                WriteLog("Read Coil Status exception : " + e.Message);
-        //                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status exception : " + e.Message + "\r\n"); }));
-        //            }
-        //            break;
-        //        case 2://Read Input Status
-        //            try
-        //            {
-        //                for (int i = 0; i < requestParam.numOfRegister; i++)
-        //                {
-        //                    this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] = writeData[i];
-        //                    WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-        //                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
-        //                }
-        //            }
-        //            catch (Exception e)
-        //            {
-        //                WriteLog("Read Input Status exception : " + e.Message);
-        //                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status exception : " + e.Message + "\r\n"); }));
-        //            }
-        //            break;
-        //        default:
-        //            break;
-        //    }
-        //}
-        //public void DataStoreWrite(RequestParam requestParam, List<ushort> writeData)
-        //{
-        //    //Test
-        //    //----------------------------------------------------------
-        //    for (ushort i = 0; i < requestParam.numOfRegister; i++)
-        //    {
-        //        writeData.Add((ushort)Convert.ToInt16(i + 1));
-        //    }
-        //    //----------------------------------------------------------
-
-        //    switch (requestParam.functionCode)
-        //    {
-        //        case 3://Read Holding Registers
-        //            try
-        //            {
-        //                for (int i = 0; i < requestParam.numOfRegister; i++)
-        //                {
-        //                    this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeData[i];
-        //                    WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-        //                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(requestParam.startAddress +i ) + " = " + writeData[i] + "\r\n"); }));
-        //                }
-        //            }
-        //            catch (Exception e)
-        //            {
-        //                WriteLog("Read Holding Registers exception : " + e.Message);
-        //                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers exception : " + e.Message + "\r\n"); }));
-        //            }
-        //            break;
-        //        case 4://Read Input Registers
-        //            try
-        //            {
-        //                for (int i = 0; i < requestParam.numOfRegister; i++)
-        //                {
-        //                    this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] = writeData[i];
-        //                    WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[requestParam.startAddress + i + 1] + " = " + writeData[i]);
-        //                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(requestParam.startAddress + i)  + " = " + writeData[i] + "\r\n"); }));
-        //                }
-        //            }
-        //            catch (Exception e)
-        //            {
-        //                WriteLog("Read Input Registers exception : " + e.Message);
-        //                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers exception : " + e.Message + "\r\n"); }));
-        //            }
-        //            break;
-        //        case 5://Force Single Coil
-        //            break;
-        //        case 6://Force Single Register
-        //            break;
-        //        case 15://Force Multiple Coils
-        //            break;
-        //        case 16://Preset Multiple Registers
-        //            break;
-        //        default:
-        //            break;
-        //    }
-        //}
         public void DataStoreWrite(List<JToken> mongoMappingList, object writeData)
         {
+            int mongoDataCount = 0;
             for (int i = 0; i < mongoMappingList.Count(); i++)
             {
                 switch (mongoMappingList[i]["FunctionCode"].ToString())
@@ -467,68 +379,194 @@ namespace modbus_server
                         try
                         {
                             List<string> writeDataCoil = (List<string>)writeData;
-                            this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]] = bool.Parse(writeDataCoil[i]);
-                            WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataCoil[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status : " + Convert.ToInt16((int)mongoMappingList[i]["Registers"]) + " = " + writeDataCoil[i] + "\r\n"); }));
-                            
+                            if(writeDataCoil[mongoDataCount] == "1")
+                            {
+                                this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]] = true;
+                                
+                            }
+                            else if(writeDataCoil[mongoDataCount] == "0")
+                            {
+                                this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]] = false;
+                            }
+                            //this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]] = bool.Parse(writeDataCoil[i]);
+                            WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataCoil[mongoDataCount]);
+                            if(textBoxMessageCloseFlag == false)
+                            {
+                                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status : " + Convert.ToInt16((int)mongoMappingList[i]["Registers"]) + " = " + writeDataCoil[mongoDataCount] + "\r\n"); }));
+
+                            }
+                            mongoDataCount++;
                         }
                         catch (Exception e)
                         {
+                            errorCount++;
                             WriteLog("Read Coil Status exception : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status exception : " + e.Message + "\r\n"); }));
+                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     case "2"://Read Input Status
                         try
                         {
                             List<string> writeDataInputDiscreates = (List<string>)writeData;
-                            this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]] = bool.Parse(writeDataInputDiscreates[i]);
-                            WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputDiscreates[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputDiscreates[i] + "\r\n"); }));
+                            if(writeDataInputDiscreates[mongoDataCount] == "1")
+                            {
+                                this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]] = true;
+                            }
+                            else if(writeDataInputDiscreates[mongoDataCount] == "0")
+                            {
+                                this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]] = false;
+                            }
+                            //this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]] = bool.Parse(writeDataInputDiscreates[i]);
+                            WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputDiscreates[mongoDataCount]);
                             
+                            if (textBoxMessageCloseFlag == false)
+                            {
+                                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputDiscreates[mongoDataCount] + "\r\n"); }));
+                            }
+                            mongoDataCount++;
                         }
                         catch (Exception e)
                         {
+                            errorCount++;
                             WriteLog("Read Input Status exception : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status exception : " + e.Message + "\r\n"); }));
+                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     case "3"://Read Holding Registers
                         try
                         {
+                            int floatLength = 2;
                             List<string> writeDataHoldingRegisters = (List<string>)writeData;
-                            this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"]] = ushort.Parse(writeDataHoldingRegisters[i]);
-                            //this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeDataHoldingRegisters[i];
-                            WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataHoldingRegisters[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataHoldingRegisters[i] + "\r\n"); }));
+                            switch (mongoMappingList[i]["Type"].ToString())
+                            {
+                                case "float":
+                                case "int32":
+                                    for (int address = 0; address < floatLength; address++)
+                                    {
+                                        this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"] + address] = ushort.Parse(writeDataHoldingRegisters[mongoDataCount]) ;
+                                        WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"] + address] + " = " + writeDataHoldingRegisters[mongoDataCount]);
+                                        if (textBoxMessageCloseFlag == false)
+                                        {
+                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataHoldingRegisters[mongoDataCount] + "\r\n"); }));
 
+                                        }
+                                        mongoDataCount++;
+                                    }
+                                    break;
+                                default:
+                                    this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"]] = ushort.Parse(writeDataHoldingRegisters[mongoDataCount]);
+                                    WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataHoldingRegisters[mongoDataCount]);
+                                    if (textBoxMessageCloseFlag == false)
+                                    {
+                                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataHoldingRegisters[mongoDataCount] + "\r\n"); }));
+
+                                    }
+                                    mongoDataCount++;
+                                    break;
+                            }
+                            //List<string> writeDataHoldingRegisters = (List<string>)writeData;
+                            //this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"]] = ushort.Parse(writeDataHoldingRegisters[i]);
+                            //this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[requestParam.startAddress + i + 1] = writeDataHoldingRegisters[i];
+                            //WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataHoldingRegisters[i]);
+                            //if (textBoxMessageCloseFlag == false)
+                            //{
+                            //    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataHoldingRegisters[i] + "\r\n"); }));
+
+                            //}
                         }
                         catch (Exception e)
                         {
+                            errorCount++;
                             WriteLog("Read Holding Registers exception : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers exception : " + e.Message + "\r\n"); }));
+                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     case "4"://Read Input Registers
                         try
                         {
+                            int floatLength = 2;
                             List<string> writeDataInputRegisters = (List<string>)writeData;
-                            this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] = ushort.Parse(writeDataInputRegisters[i]);
-                            WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputRegisters[i]);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputRegisters[i] + "\r\n"); }));
+                            switch (mongoMappingList[i]["Type"].ToString())
+                            {
+                                case "float":
+                                case "int32":
+                                    for (int address = 0; address < floatLength; address++)
+                                    {
+                                        this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"] + address] = ushort.Parse(writeDataInputRegisters[mongoDataCount]);
+                                        WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputRegisters[mongoDataCount]);
+                                        if (textBoxMessageCloseFlag == false)
+                                        {
+                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
+                                        }
+                                        mongoDataCount++;
+                                    }
+                                    break;
+                                default:
+                                    this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] = ushort.Parse(writeDataInputRegisters[mongoDataCount]);
+                                    WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputRegisters[mongoDataCount]);
+
+                                    if (textBoxMessageCloseFlag == false)
+                                    {
+                                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
+                                    }
+                                    mongoDataCount++;
+                                    break;
+                            }
+                            //List<string> writeDataInputRegisters = (List<string>)writeData;
+                            //this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] = ushort.Parse(writeDataInputRegisters[mongoDataCount]);
+                            //WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputRegisters[mongoDataCount]);
                             
+                            //if (textBoxMessageCloseFlag == false)
+                            //{
+                            //    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
+                            //}
+                            //mongoDataCount++;
                         }
                         catch (Exception e)
                         {
+                            errorCount++;
                             WriteLog("Read Input Registers exception : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers exception : " + e.Message + "\r\n"); }));
+                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     default:
                         break;
                 }
             }
+            updateCount++;
+            label4.Invoke(new Action(() => { label4.Text = updateCount.ToString(); }));
+            textBoxMessageCloseFlag = true;
         }
+
+        public List<string> FloatConvertToInt16(BsonValue floatData)
+        {
+            List<string> dataList = new List<string>();
+            ushort[] uintData = new ushort[2];
+            float[] floatDataTmp = new float[1] { Convert.ToSingle(floatData)};
+            Buffer.BlockCopy(floatDataTmp, 0, uintData, 0, 4);
+            for (int index = 0; index < uintData.Length; index++)
+            {
+                dataList.Add(uintData[index].ToString());
+            }
+            return dataList;
+        }
+        public List<string> Int32ConvertToInt16(BsonValue int32Data)
+        {
+            List<string> dataList = new List<string>();
+            ushort[] uintData = new ushort[2];
+            int[] intDataTmp = new int[1] { Convert.ToInt32(int32Data) };
+            Buffer.BlockCopy(intDataTmp, 0, uintData, 0, 4);
+            for (int index = 0; index < uintData.Length; index++)
+            {
+                dataList.Add(uintData[index].ToString());
+            }
+            return dataList;
+        }
+
 
         public void WriteLog(string logMessage)
         {

@@ -34,6 +34,10 @@
             this.button1 = new System.Windows.Forms.Button();
             this.label1 = new System.Windows.Forms.Label();
             this.linkLabel1 = new System.Windows.Forms.LinkLabel();
+            this.label2 = new System.Windows.Forms.Label();
+            this.label3 = new System.Windows.Forms.Label();
+            this.label4 = new System.Windows.Forms.Label();
+            this.label5 = new System.Windows.Forms.Label();
             this.SuspendLayout();
             // 
             // textBox1
@@ -87,6 +91,46 @@
             this.linkLabel1.Text = "About..";
             this.linkLabel1.MouseClick += new System.Windows.Forms.MouseEventHandler(this.linkLabel1_MouseClick);
             // 
+            // label2
+            // 
+            this.label2.AutoEllipsis = true;
+            this.label2.AutoSize = true;
+            this.label2.Location = new System.Drawing.Point(36, 277);
+            this.label2.Name = "label2";
+            this.label2.Size = new System.Drawing.Size(97, 19);
+            this.label2.TabIndex = 5;
+            this.label2.Text = "ErrorCount : ";
+            // 
+            // label3
+            // 
+            this.label3.AutoEllipsis = true;
+            this.label3.AutoSize = true;
+            this.label3.Location = new System.Drawing.Point(139, 277);
+            this.label3.Name = "label3";
+            this.label3.Size = new System.Drawing.Size(18, 19);
+            this.label3.TabIndex = 6;
+            this.label3.Text = "0";
+            // 
+            // label4
+            // 
+            this.label4.AutoEllipsis = true;
+            this.label4.AutoSize = true;
+            this.label4.Location = new System.Drawing.Point(139, 258);
+            this.label4.Name = "label4";
+            this.label4.Size = new System.Drawing.Size(18, 19);
+            this.label4.TabIndex = 8;
+            this.label4.Text = "0";
+            // 
+            // label5
+            // 
+            this.label5.AutoEllipsis = true;
+            this.label5.AutoSize = true;
+            this.label5.Location = new System.Drawing.Point(20, 258);
+            this.label5.Name = "label5";
+            this.label5.Size = new System.Drawing.Size(113, 19);
+            this.label5.TabIndex = 7;
+            this.label5.Text = "UpdateCount : ";
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 19F);
@@ -94,6 +138,10 @@
             this.AutoScroll = true;
             this.AutoSize = true;
             this.ClientSize = new System.Drawing.Size(457, 306);
+            this.Controls.Add(this.label4);
+            this.Controls.Add(this.label5);
+            this.Controls.Add(this.label3);
+            this.Controls.Add(this.label2);
             this.Controls.Add(this.linkLabel1);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.button1);
@@ -115,5 +163,9 @@
         private Button button1;
         private Label label1;
         private LinkLabel linkLabel1;
+        private Label label2;
+        private Label label3;
+        protected Label label4;
+        protected Label label5;
     }
 }
