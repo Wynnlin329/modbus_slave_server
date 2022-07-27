@@ -26,5 +26,8 @@ namespace modbus_server
         public string functionCodes { get; set; }
         public string field { get; set; }
         public string type { get; set; }
+        public bool array { get; set; }
+        public int arrayLevel { get; set; }
+        public int arrayNum { get; set; }
     }
 }

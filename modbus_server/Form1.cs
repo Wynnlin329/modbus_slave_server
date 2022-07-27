@@ -52,10 +52,11 @@ namespace modbus_server
         {
             InitializeComponent();
             //cpuID = GetCPUID();
-            //if (cpuID == "BFEBFBFF000806C1")//BFEBFBFF000806C1(test)     04:42:1A:CB:96:CA(remote)
+            //if (cpuID == "BFEBFBFF000806C1")//BFEBFBFF000806C1(test)   BFEBFBFF000906EA(Modbus Server)   04:42:1A:CB:96:CA(remote)
             //{
             //    InitMappingData();
             //    InitIPAddress();
+            //    InitTextbox();
             //    SetPollingClient();
             //    SetPollingMongoDBTimer();
             //    SetPollingMongoDBConnect();
@@ -67,6 +68,7 @@ namespace modbus_server
             //}
             InitMappingData();
             InitIPAddress();
+            InitTextbox();
             SetPollingClient();
             SetPollingMongoDBDataCollection();
             SetPollingMongoDBConnect();
@@ -115,7 +117,20 @@ namespace modbus_server
                     }
                 }
             }
+            //-------------------------------------------------------------
+            for (int i = 0; i < this.mongoMappingList.Count(); i++)
+            {
+                WriteLog("InitMappingData mappingTable資料內容 : " + this.mongoMappingList[i]);
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "InitMappingData mappingTable資料內容 : " + this.mongoMappingList[i]+" \r\n");
+            }
+            for (int i = 0; i < this.statusList.Count(); i++)
+            {
+                WriteLog("InitMappingData statusList內容 : " + this.statusList[i]);
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "InitMappingData statusList內容 : " + this.statusList[i] + " \r\n");
+            }
+            //-------------------------------------------------------------
             WriteLog("InitMappingData mappingTable資料筆數 : " + this.mongoMappingList.Count());
+            WriteLog("InitMappingData statusList : " + this.statusList.Count());
         }
         public void InitIPAddress()
         {
@@ -131,6 +146,21 @@ namespace modbus_server
                     comboBox1.Items.Insert(count, addr[i]);
                     count++;
                 }
+            }
+        }
+        private void InitTextbox()
+        {
+            if (radioButtonNo.Checked == true)
+            {
+                textboxSecondary.Enabled = false;
+                textboxSecondaryPort.Enabled = false;
+                textboxArbiter.Enabled = false;
+                textboxArbiterPort.Enabled = false;
+                textboxReplicaSet.Enabled = false;
+            }
+            else if (radioButtonYes.Checked == true)
+            {
+
             }
         }
         public void SetPollingClient()
@@ -199,27 +229,110 @@ namespace modbus_server
         }
         private void ProcessStart_Click(object sender, EventArgs e)
         {
-            InitMongoDBConnectString();
-            if (this.modbusTcpConnParam.tcpListener != null)
+            bool configReport;
+            configReport = ConfigCheacker();
+            if (configReport == true)
             {
-                mongoDBStatus = "unConnect";
-                this.modbusTcpConnParam.slave.Dispose();
-                this.modbusTcpConnParam.tcpListener.Stop();
-                //this.pollingMongoDBConnect.Stop();
-                //this.pollingMongoDBConnect.Stop();
-                //this.pollingClient.Stop();
-                //this.updateStatus.Stop();
-                //this.pollingMongoDB.Stop();
-                this.modbusTcpConnParam.ipAddress = (IPAddress)comboBox1.SelectedItem;
-                InitModbusTcpSlave();
+                InitMongoDBConnectString();
+                if (this.modbusTcpConnParam.tcpListener != null)
+                {
+                    mongoDBStatus = "unConnect";
+                    this.modbusTcpConnParam.slave.Dispose();
+                    this.modbusTcpConnParam.tcpListener.Stop();
+                    //this.pollingMongoDBConnect.Stop();
+                    //this.pollingMongoDBConnect.Stop();
+                    //this.pollingClient.Stop();
+                    //this.updateStatus.Stop();
+                    //this.pollingMongoDB.Stop();
+                    this.modbusTcpConnParam.ipAddress = (IPAddress)comboBox1.SelectedItem;
+                    InitModbusTcpSlave();
+                }
+                else
+                {
+                    this.modbusTcpConnParam.ipAddress = (IPAddress)comboBox1.SelectedItem;
+                    InitModbusTcpSlave();
+                    InitStatus();
+                }
+                comboBox1.Enabled = false;
+                textboxDBUser.Enabled = false;
+                textboxPassword.Enabled = false;
+                textboxPrimary.Enabled = false;
+                textboxPrimaryPort.Enabled = false;
+                textboxSecondary.Enabled = false;
+                textboxSecondaryPort.Enabled = false;
+                textboxArbiter.Enabled = false;
+                textboxArbiterPort.Enabled = false;
+                radioButtonYes.Enabled = false;
+                radioButtonNo.Enabled = false;
+                button2.Enabled = true;
+                button1.Enabled = false;
+            }
+        }
+        private void button2_Click(object sender, EventArgs e)
+        {
+            radioButtonYes.Enabled = true;
+            radioButtonNo.Enabled = true;
+            button2.Enabled = false;
+            button1.Enabled = true;
+            comboBox1.Enabled = true;
+            textboxDBUser.Enabled = true;
+            textboxPassword.Enabled = true;
+            textboxPrimary.Enabled = true;
+            textboxPrimaryPort.Enabled = true;
 
-            }
-            else
+            if (radioButtonYes.Checked == true)
             {
-                this.modbusTcpConnParam.ipAddress = (IPAddress)comboBox1.SelectedItem;
-                InitModbusTcpSlave();
-                InitStatus();
+                textboxSecondary.Enabled = true;
+                textboxSecondaryPort.Enabled = true;
+                textboxArbiter.Enabled = true;
+                textboxArbiterPort.Enabled = true;
+                textboxReplicaSet.Enabled = true;
             }
+        }
+        public bool ConfigCheacker()
+        {
+            bool checkReport = true;
+            if (comboBox1.SelectedItem == null)
+            {
+                checkReport = false;
+                MessageBox.Show("請選擇Modbus Server IP");
+            }
+            else if (string.IsNullOrEmpty(textboxPrimary.Text))
+            {
+                checkReport = false;
+                MessageBox.Show("請輸入EMS IP");
+            }
+            else if (string.IsNullOrEmpty(textboxPrimaryPort.Text))
+            {
+                checkReport = false;
+                MessageBox.Show("請輸入Port");
+            }
+            else if (string.IsNullOrEmpty(textboxSecondary.Text) && radioButtonYes.Checked == true)
+            {
+                checkReport = false;
+                MessageBox.Show("請輸入EMS IP");
+            }
+            else if (string.IsNullOrEmpty(textboxSecondaryPort.Text) && radioButtonYes.Checked == true)
+            {
+                checkReport = false;
+                MessageBox.Show("請輸入Port");
+            }
+            else if (string.IsNullOrEmpty(textboxArbiter.Text) && radioButtonYes.Checked == true)
+            {
+                checkReport = false;
+                MessageBox.Show("請輸入EMS IP");
+            }
+            else if (string.IsNullOrEmpty(textboxArbiterPort.Text) && radioButtonYes.Checked == true)
+            {
+                checkReport = false;
+                MessageBox.Show("請輸入Port");
+            }
+            else if (string.IsNullOrEmpty(textboxReplicaSet.Text) && radioButtonYes.Checked == true)
+            {
+                checkReport = false;
+                MessageBox.Show("請輸入ReplicaSetName");
+            }
+            return checkReport;
         }
         public void InitModbusTcpSlave()
         {
@@ -236,7 +349,7 @@ namespace modbus_server
                 WriteLog("Modbus Server 已開啟");
                 textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Modbus Server 已開啟 \r\n");
 
-
+                
 
                 //test-------------------------------------------------------------- -
                 //List<bool> writeDataCoil = new List<bool>() { true, false, true, false, true };
@@ -282,23 +395,39 @@ namespace modbus_server
                         break;
                 }
             }
+            //this.pollingMongoDBConnect.Start();
+            //this.pollingClient.Start();
+
+
             this.updateStatus.Start();
             this.pollingMongoDB.Start();
         }
         public void InitMongoDBConnectString()
         {
-            string DBuser = textboxDBUser.Text;
-            string DBpassword = textboxPassword.Text;
-            string mongoDBPrimary = textboxPrimary.Text;
-            string mongoDBSecondary = textboxSecondary.Text;
-            string mongoDBArbiter = textboxArbiter.Text;
-            string mongoDBPrimaryPort = textboxPrimaryPort.Text;
-            string mongoDBSecondaryPort = textboxSecondaryPort.Text;
-            string mongoDBArbiterPort = textboxArbiterPort.Text;
-            //this.mongoConnectionString = "mongodb://wynn:0000@192.168.56.101:27017,192.168.56.102:27017,192.168.56.103:27017/?replicaSet=rs0&serverSelectionTimeoutMS=5000";
-            this.mongoConnectionString = string.Format("mongodb://{0}:{1}@{2}:{3},{4}:{5},{6}:{7}/?replicaSet=rs0&serverSelectionTimeoutMS=5000"
-                                                      , DBuser, DBpassword, mongoDBPrimary, mongoDBPrimaryPort, mongoDBSecondary, mongoDBSecondaryPort, mongoDBArbiter, mongoDBArbiterPort);
-
+            if (radioButtonNo.Checked == true)
+            {
+                string DBuser = textboxDBUser.Text.Trim();
+                string DBpassword = textboxPassword.Text.Trim();
+                string mongoDBPrimary = textboxPrimary.Text.Trim();
+                string mongoDBPrimaryPort = textboxPrimaryPort.Text.Trim();
+                //this.mongoConnectionString = string.Format("mongodb://{0}:{1}@{2}:{3}/admin?serverSelectionTimeoutMS=5000", DBuser, DBpassword, mongoDBPrimary, mongoDBPrimaryPort);
+                this.mongoConnectionString = string.Format("mongodb://{0}:{1}/admin?serverSelectionTimeoutMS=5000",mongoDBPrimary, mongoDBPrimaryPort);
+            }
+            else if (radioButtonYes.Checked == true)
+            {
+                string DBuser = textboxDBUser.Text.Trim();
+                string DBpassword = textboxPassword.Text.Trim();
+                string mongoDBPrimary = textboxPrimary.Text.Trim();
+                string mongoDBSecondary = textboxSecondary.Text.Trim();
+                string mongoDBArbiter = textboxArbiter.Text.Trim();
+                string mongoDBPrimaryPort = textboxPrimaryPort.Text.Trim();
+                string mongoDBSecondaryPort = textboxSecondaryPort.Text.Trim();
+                string mongoDBArbiterPort = textboxArbiterPort.Text.Trim();
+                string replicaSetName = textboxReplicaSet.Text.Trim();
+                //this.mongoConnectionString = "mongodb://wynn:0000@192.168.56.101:27017,192.168.56.102:27017,192.168.56.103:27017/?replicaSet=rs0&serverSelectionTimeoutMS=5000";
+                this.mongoConnectionString = string.Format("mongodb://{0}:{1}@{2}:{3},{4}:{5},{6}:{7}/?replicaSet={8}&serverSelectionTimeoutMS=5000"
+                                                          , DBuser, DBpassword, mongoDBPrimary, mongoDBPrimaryPort, mongoDBSecondary, mongoDBSecondaryPort, mongoDBArbiter, mongoDBArbiterPort, replicaSetName);
+            }
         }
         public string GetMacAddress()
         {
@@ -391,6 +520,7 @@ namespace modbus_server
         }
         public void ClientDetect()
         {
+            
             clientNo = ((Modbus.Device.ModbusTcpSlave)modbusTcpConnParam.slave).Masters.Count();
             if(this.clientNo != this.previousClientNo && this.clientNo != 0 )
             {
@@ -498,6 +628,51 @@ namespace modbus_server
                         this.mongoDBQueryParam.functionCodes = (string)mongoMappingList[i]["FunctionCode"];
                         this.mongoDBQueryParam.field = (string)mongoMappingList[i]["Field"];
                         this.mongoDBQueryParam.type = (string)mongoMappingList[i]["Type"];
+                        //this.mongoDBQueryParam.array = (bool)mongoMappingList[i]["Array"];
+                        //this.mongoDBQueryParam.arrayLevel = (int)mongoMappingList[i]["ArrayLevel"];
+                        //this.mongoDBQueryParam.arrayNum = (int)mongoMappingList[i]["ArrayNumber"];
+
+                        /***
+                         * 判斷是不是list
+                         *    是  進入QueryDataArray
+                         *    否  進入QueryData
+                         * 
+                         * ***/
+                        
+
+
+
+
+
+
+
+
+
+
+                        /***---------------優化部分-----------------
+                         * 判斷是不是list
+                         *      是  
+                         *          判斷 欄位 跟 collection 是不是跟之前一樣
+                         *              是  沿用之前的doc
+                         *              否  進入QueryDataArray 
+                         *              
+                         *      否
+                         *          判斷 collection 是不是跟之前一樣
+                         *              是  沿用之前的doc
+                         *              否  進入QueryData
+                         * 
+                         * 
+                         ***/
+
+
+
+
+
+
+
+
+
+
 
                         mongoDataListTMP = QueryData(this.mongoDBQueryParam);
                         if(mongoDataListTMP[0] != "mongoStatusUnconnect")
@@ -536,24 +711,125 @@ namespace modbus_server
                 label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
             //Test---------------------------------------------------------------------
-            List<string> testSample = new List<string>() { "1", "0", "1", "0", "0", "1", "0", "1", "4", "4", "2", "10", "4", "4", "4", "4", "39322", "16025", "4719", "15235", "29884", "15379", "62588", "184", "1", "5", "0", "1", "2", "9", "2", "4", "3", "6", "7", "4", "4", "1", "0", "4", "3", "3", "4", "3", "3", "7", "5", "2", "4", "0", "4", "6", "5", "2", "2", "1", "0", "5", "0", "0", "0", "0", "0" };
-            if(mongoDataTest.Count() != mongoDataList.Count())
-            {
-                errorCount++;
-                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
-                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "資料筆數有誤" + "\r\n"); }));
-                WriteLog("資料筆數有誤");
-            }
-            else if (!mongoDataList.SequenceEqual(testSample))
-            {
-                errorCount++;
-                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
-                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "資料內容有誤" + "\r\n"); }));
-                WriteLog("資料內容有誤");
-            }
+            //List<string> testSample = new List<string>() { "1", "0", "1", "0", "0", "1", "0", "1", "4", "4", "2", "10", "4", "4", "4", "4", "39322", "16025", "4719", "15235", "29884", "15379", "62588", "184", "1", "5", "0", "1", "2", "9", "2", "4", "3", "6", "7", "4", "4", "1", "0", "4", "3", "3", "4", "3", "3", "7", "5", "2", "4", "0", "4", "6", "5", "2", "2", "1", "0", "5", "0", "0", "0", "0", "0" };
+            //if(mongoDataTest.Count() != mongoDataList.Count())
+            //{
+            //    errorCount++;
+            //    label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+            //    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "資料筆數有誤" + "\r\n"); }));
+            //    WriteLog("資料筆數有誤");
+            //}
+            //else if (!mongoDataList.SequenceEqual(testSample))
+            //{
+            //    errorCount++;
+            //    label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+            //    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "資料內容有誤" + "\r\n"); }));
+            //    WriteLog("資料內容有誤");
+            //}
             //---------------------------------------------------------------------
             WriteLog("MongoDataCollection : " + mongoDataList.Count());
             mongoDataTest.Clear();
+            return mongoDataList ;
+        }
+        public List<string> QueryDataArray(MongoDBQueryParam mongoDBQueryParam)
+        {
+            List<string> mongoDataList = new List<string>();
+            this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase(mongoDBQueryParam.database);
+            var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
+            var filter = Builders<BsonDocument>.Filter.Empty;
+            //-----------------------------------------------
+            var filtera = Builders<BsonDocument>.Filter;
+            var sort = Builders<BsonDocument>.Sort;
+            try
+            {
+                var doc = collections.Find(filtera.Empty)//過濾
+                                 .Sort(sort.Descending("_id")).Limit(1).ToList().Last();//倒序
+                //var docTMP = collections.Find(filter).ToList();
+                //docTMP.Sort();
+                //var doc = docTMP.Last(); //還是要sort取出最新一筆
+                switch (mongoDBQueryParam.type)
+                {
+                    case "int32":
+                    case "uint32":
+                        try
+                        {
+                            if(mongoDBQueryParam.arrayLevel > 0)
+                            {
+                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum].ToString());
+                                mongoDataList = Int32ConvertToInt16(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum]);
+                            }
+                            else
+                            {
+                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum].ToString());
+                                mongoDataList = Int32ConvertToInt16(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum]);
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            WriteLog("Exception QueryData : " + e.Message);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
+                            errorCount++;
+                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                        }
+                        break;
+                    case "float":
+                        try
+                        {
+                            if (mongoDBQueryParam.arrayLevel > 0)
+                            {
+                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum].ToString());
+                                mongoDataList = FloatConvertToInt16(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum]);
+                            }
+                            else
+                            {
+                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum].ToString());
+                                mongoDataList = FloatConvertToInt16(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum]);
+                            }
+                            
+                        }
+                        catch (Exception e)
+                        {
+                            WriteLog("Exception QueryData : " + e.Message);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
+                            errorCount++;
+                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                        }
+                        break;
+                    default:
+                        try
+                        {
+                            if (mongoDBQueryParam.arrayLevel > 0)
+                            {
+                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum].ToString());
+                                mongoDataList.Add(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum].ToString());
+                            }
+                            else
+                            {
+                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum].ToString());
+                                mongoDataList.Add(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum].ToString());
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            WriteLog("Exception QueryData : " + e.Message);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
+                            errorCount++;
+                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                        }
+                        break;
+                }
+            }
+            catch (Exception e)
+            {
+                this.mongoDBStatus = "unConnect";
+                mongoDataList.Add("mongoStatusUnconnect");
+                WriteLog("Exception QueryData : " + e.Message);
+                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
+                errorCount++;
+                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+            }
+
+
             return mongoDataList;
         }
         public List<string> QueryData(MongoDBQueryParam mongoDBQueryParam)
@@ -562,15 +838,23 @@ namespace modbus_server
             this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase(mongoDBQueryParam.database);
             var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
             var filter = Builders<BsonDocument>.Filter.Empty;
+            //-----------------------------------------------
+            var filtera = Builders<BsonDocument>.Filter;
+            var sort = Builders<BsonDocument>.Sort;
+            
+            //-----------------------------------------------
 
             try
             {
-                var docTMP = collections.Find(filter).ToList();
-                docTMP.Sort();
-                var doc = docTMP.Last(); //還是要sort取出最新一筆
+                var doc = collections.Find(filtera.Empty)//過濾
+                                 .Sort(sort.Descending("_id")).Limit(1).ToList().Last();//倒序
+                //var docTMP = collections.Find(filter).ToList();
+                //docTMP.Sort();
+                //var doc = docTMP.Last(); //還是要sort取出最新一筆
                 switch (mongoDBQueryParam.type)
                 {
                     case "int32":
+                    case "uint32":
                         try
                         {
                             WriteLog("QueryData : " + doc[mongoDBQueryParam.field].ToString());
@@ -698,6 +982,7 @@ namespace modbus_server
                             {
                                 case "float":
                                 case "int32":
+                                case "uint32":
                                     for (int address = 0; address < floatLength; address++)
                                     {
                                         this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"] + address] = ushort.Parse(writeDataHoldingRegisters[mongoDataCount]) ;
@@ -737,6 +1022,7 @@ namespace modbus_server
                             {
                                 case "float":
                                 case "int32":
+                                case "uint32":
                                     for (int address = 0; address < floatLength; address++)
                                     {
                                         this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"] + address] = ushort.Parse(writeDataInputRegisters[mongoDataCount]);
@@ -833,6 +1119,24 @@ namespace modbus_server
         {
             FormAbout formAboutPop = new FormAbout();
             formAboutPop.Show();
+        }
+
+        private void radioButtonNo_CheckedChanged(object sender, EventArgs e)
+        {
+            textboxSecondary.Enabled = false;
+            textboxSecondaryPort.Enabled = false;
+            textboxArbiter.Enabled = false;
+            textboxArbiterPort.Enabled = false;
+            textboxReplicaSet.Enabled = false;
+        }
+
+        private void radioButtonYes_CheckedChanged(object sender, EventArgs e)
+        {
+            textboxSecondary.Enabled = true;
+            textboxSecondaryPort.Enabled = true;
+            textboxArbiter.Enabled = true;
+            textboxArbiterPort.Enabled = true;
+            textboxReplicaSet.Enabled = true;
         }
     }
 }
