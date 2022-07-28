@@ -395,10 +395,6 @@ namespace modbus_server
                         break;
                 }
             }
-            //this.pollingMongoDBConnect.Start();
-            //this.pollingClient.Start();
-
-
             this.updateStatus.Start();
             this.pollingMongoDB.Start();
         }
@@ -613,6 +609,9 @@ namespace modbus_server
 
         public List<string> MongoDataCollection(List<JToken> mongoMappingList)
         {
+            string previousCollection = string.Empty;
+            string previousField = string.Empty;
+            BsonDocument document = new BsonDocument();
             List<string> mongoDataList = new List<string>();
             List<string> mongoDataListTMP = new List<string>();
             List<string> mongoDataTest = new List<string>();
@@ -628,54 +627,22 @@ namespace modbus_server
                         this.mongoDBQueryParam.functionCodes = (string)mongoMappingList[i]["FunctionCode"];
                         this.mongoDBQueryParam.field = (string)mongoMappingList[i]["Field"];
                         this.mongoDBQueryParam.type = (string)mongoMappingList[i]["Type"];
-                        //this.mongoDBQueryParam.array = (bool)mongoMappingList[i]["Array"];
-                        //this.mongoDBQueryParam.arrayLevel = (int)mongoMappingList[i]["ArrayLevel"];
-                        //this.mongoDBQueryParam.arrayNum = (int)mongoMappingList[i]["ArrayNumber"];
+                        this.mongoDBQueryParam.array = (bool)mongoMappingList[i]["Array"];
+                        this.mongoDBQueryParam.arrayLevel = (int)mongoMappingList[i]["ArrayLevel"];
+                        this.mongoDBQueryParam.arrayNum = (int)mongoMappingList[i]["ArrayNumber"];
 
-                        /***
-                         * 判斷是不是list
-                         *    是  進入QueryDataArray
-                         *    否  進入QueryData
-                         * 
-                         * ***/
+                        
                         
 
+                        if (this.mongoDBQueryParam.collection != previousCollection && this.mongoDBQueryParam.field != previousField)
+                        {
+                            document = Query(this.mongoDBQueryParam);
+                            previousField = this.mongoDBQueryParam.field;
+                            previousCollection = this.mongoDBQueryParam.collection;
+                        }
+                        mongoDataListTMP = QueryDataExtrating(this.mongoDBQueryParam, document);
 
-
-
-
-
-
-
-
-
-                        /***---------------優化部分-----------------
-                         * 判斷是不是list
-                         *      是  
-                         *          判斷 欄位 跟 collection 是不是跟之前一樣
-                         *              是  沿用之前的doc
-                         *              否  進入QueryDataArray 
-                         *              
-                         *      否
-                         *          判斷 collection 是不是跟之前一樣
-                         *              是  沿用之前的doc
-                         *              否  進入QueryData
-                         * 
-                         * 
-                         ***/
-
-
-
-
-
-
-
-
-
-
-
-                        mongoDataListTMP = QueryData(this.mongoDBQueryParam);
-                        if(mongoDataListTMP[0] != "mongoStatusUnconnect")
+                        if (mongoDataListTMP[0] != "mongoStatusUnconnect")
                         {
                             foreach (var mongoData in mongoDataListTMP)
                             {
@@ -731,134 +698,54 @@ namespace modbus_server
             mongoDataTest.Clear();
             return mongoDataList ;
         }
-        public List<string> QueryDataArray(MongoDBQueryParam mongoDBQueryParam)
+
+        public BsonDocument Query(MongoDBQueryParam mongoDBQueryParam)
         {
-            List<string> mongoDataList = new List<string>();
-            this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase(mongoDBQueryParam.database);
-            var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
-            var filter = Builders<BsonDocument>.Filter.Empty;
-            //-----------------------------------------------
-            var filtera = Builders<BsonDocument>.Filter;
-            var sort = Builders<BsonDocument>.Sort;
+            BsonDocument doc = new BsonDocument();
             try
             {
-                var doc = collections.Find(filtera.Empty)//過濾
-                                 .Sort(sort.Descending("_id")).Limit(1).ToList().Last();//倒序
-                //var docTMP = collections.Find(filter).ToList();
-                //docTMP.Sort();
-                //var doc = docTMP.Last(); //還是要sort取出最新一筆
-                switch (mongoDBQueryParam.type)
-                {
-                    case "int32":
-                    case "uint32":
-                        try
-                        {
-                            if(mongoDBQueryParam.arrayLevel > 0)
-                            {
-                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum].ToString());
-                                mongoDataList = Int32ConvertToInt16(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum]);
-                            }
-                            else
-                            {
-                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum].ToString());
-                                mongoDataList = Int32ConvertToInt16(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum]);
-                            }
-                        }
-                        catch (Exception e)
-                        {
-                            WriteLog("Exception QueryData : " + e.Message);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
-                            errorCount++;
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
-                        }
-                        break;
-                    case "float":
-                        try
-                        {
-                            if (mongoDBQueryParam.arrayLevel > 0)
-                            {
-                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum].ToString());
-                                mongoDataList = FloatConvertToInt16(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum]);
-                            }
-                            else
-                            {
-                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum].ToString());
-                                mongoDataList = FloatConvertToInt16(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum]);
-                            }
-                            
-                        }
-                        catch (Exception e)
-                        {
-                            WriteLog("Exception QueryData : " + e.Message);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
-                            errorCount++;
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
-                        }
-                        break;
-                    default:
-                        try
-                        {
-                            if (mongoDBQueryParam.arrayLevel > 0)
-                            {
-                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum].ToString());
-                                mongoDataList.Add(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayLevel][mongoDBQueryParam.arrayNum].ToString());
-                            }
-                            else
-                            {
-                                WriteLog("QueryData : " + doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum].ToString());
-                                mongoDataList.Add(doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum].ToString());
-                            }
-                        }
-                        catch (Exception e)
-                        {
-                            WriteLog("Exception QueryData : " + e.Message);
-                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
-                            errorCount++;
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
-                        }
-                        break;
-                }
+                this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase(mongoDBQueryParam.database);
+                var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
+                var filter = Builders<BsonDocument>.Filter;
+                var sort = Builders<BsonDocument>.Sort;
+                doc = collections.Find(filter.Empty).Sort(sort.Descending("_id")).Limit(1).ToList().Last();//倒序
             }
             catch (Exception e)
             {
-                this.mongoDBStatus = "unConnect";
-                mongoDataList.Add("mongoStatusUnconnect");
-                WriteLog("Exception QueryData : " + e.Message);
-                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
+                WriteLog("Exception Query : " + e.Message);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception Query : " + e.Message + "\r\n"); }));
                 errorCount++;
                 label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
-
-
-            return mongoDataList;
+            return doc;
         }
-        public List<string> QueryData(MongoDBQueryParam mongoDBQueryParam)
+
+        public List<string> QueryDataExtrating(MongoDBQueryParam mongoDBQueryParam,BsonDocument doc)
         {
             List<string> mongoDataList = new List<string>();
-            this.mongoDBConnParam.mongoDataBase = this.mongoDBConnParam.mongoClient.GetDatabase(mongoDBQueryParam.database);
-            var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
-            var filter = Builders<BsonDocument>.Filter.Empty;
-            //-----------------------------------------------
-            var filtera = Builders<BsonDocument>.Filter;
-            var sort = Builders<BsonDocument>.Sort;
-            
-            //-----------------------------------------------
-
+            BsonValue mongoValue = null;
             try
             {
-                var doc = collections.Find(filtera.Empty)//過濾
-                                 .Sort(sort.Descending("_id")).Limit(1).ToList().Last();//倒序
-                //var docTMP = collections.Find(filter).ToList();
-                //docTMP.Sort();
-                //var doc = docTMP.Last(); //還是要sort取出最新一筆
+                if (mongoDBQueryParam.arrayLevel > 0 && mongoDBQueryParam.array == true)
+                {
+                    //另外想多層怎麼解
+                }
+                else if (mongoDBQueryParam.array == true)
+                {
+                    mongoValue = doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum];
+                }
+                else if (mongoDBQueryParam.array == false)
+                {
+                    mongoValue = doc[mongoDBQueryParam.field];
+                }
                 switch (mongoDBQueryParam.type)
                 {
                     case "int32":
                     case "uint32":
                         try
                         {
-                            WriteLog("QueryData : " + doc[mongoDBQueryParam.field].ToString());
-                            mongoDataList = Int32ConvertToInt16(doc[mongoDBQueryParam.field]);
+                            WriteLog("QueryData : " + mongoValue.ToString());
+                            mongoDataList = Int32ConvertToInt16(mongoValue);
                         }
                         catch (Exception e)
                         {
@@ -871,8 +758,8 @@ namespace modbus_server
                     case "float":
                         try
                         {
-                            WriteLog("QueryData : " + doc[mongoDBQueryParam.field].ToString());
-                            mongoDataList = FloatConvertToInt16(doc[mongoDBQueryParam.field]);
+                            WriteLog("QueryData : " + mongoValue.ToString());
+                            mongoDataList = FloatConvertToInt16(mongoValue);
                         }
                         catch (Exception e)
                         {
@@ -885,8 +772,8 @@ namespace modbus_server
                     default:
                         try
                         {
-                            WriteLog("QueryData : " + doc[mongoDBQueryParam.field].ToString());
-                            mongoDataList.Add(doc[mongoDBQueryParam.field].ToString());
+                            WriteLog("QueryData : " + mongoValue.ToString());
+                            mongoDataList.Add(mongoValue.ToString());
                         }
                         catch (Exception e)
                         {

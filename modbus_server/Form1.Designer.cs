@@ -203,7 +203,6 @@
             this.textboxDBUser.Name = "textboxDBUser";
             this.textboxDBUser.Size = new System.Drawing.Size(160, 27);
             this.textboxDBUser.TabIndex = 15;
-            this.textboxDBUser.Text = "root";
             // 
             // textboxPassword
             // 
@@ -212,7 +211,6 @@
             this.textboxPassword.Name = "textboxPassword";
             this.textboxPassword.Size = new System.Drawing.Size(160, 27);
             this.textboxPassword.TabIndex = 16;
-            this.textboxPassword.Text = "pc152";
             this.textboxPassword.UseSystemPasswordChar = true;
             // 
             // textboxPrimary
@@ -222,7 +220,7 @@
             this.textboxPrimary.Name = "textboxPrimary";
             this.textboxPrimary.Size = new System.Drawing.Size(160, 27);
             this.textboxPrimary.TabIndex = 17;
-            this.textboxPrimary.Text = "192.168.101.201";
+            this.textboxPrimary.Text = "192.168.56.104";
             // 
             // textboxSecondary
             // 
