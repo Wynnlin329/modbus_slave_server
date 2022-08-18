@@ -20,6 +20,7 @@ namespace modbus_server
 
     public class MongoDBQueryParam
     {
+        public string time { get; set; }
         public string collection { get; set; }
         public string database { get; set; }
         public string registers { get; set; }

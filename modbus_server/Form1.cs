@@ -23,11 +23,14 @@ namespace modbus_server
         System.Timers.Timer pollingClient = new System.Timers.Timer();
         System.Timers.Timer pollingMongoDBConnect = new System.Timers.Timer();
         System.Timers.Timer updateStatus = new System.Timers.Timer();
+        System.Timers.Timer scadaHeartbeat = new System.Timers.Timer();
         JObject json = new JObject();
         JObject jsonStatus = new JObject();
         List<JToken> mongoMappingList = new List<JToken>();
         List<JToken> statusList = new List<JToken>();
-        List<string> statusUpdateList = new List<string>() { "0", "0" };// statusUpdateList[0] : mongodbStatus, statusUpdateList[1] : clientStatus
+
+        //之後改成偵測init數量來動態新增list的數量
+        List<string> statusUpdateList = new List<string>() { "0", "0", "0", "0" };// statusUpdateList[0] : mongodbStatus 0斷線 1連線 , statusUpdateList[1] : clientStatus 0斷線 1連線 ,statusUpdateList[2] : modbus server mode  0近端 1遠端 ,statusUpdateList[3] : pExecuteStatus
         //string mongoConnectionString = "mongodb://wynn:0000@192.168.56.101:27017,192.168.56.102:27017,192.168.56.103:27017/?replicaSet=rs0&serverSelectionTimeoutMS=5000";
         string mongoConnectionString = string.Empty;
         string logAddress = @"D:\log\";
@@ -41,13 +44,34 @@ namespace modbus_server
         bool clientDetectFlag = false;
         bool updateStatusFlag = false;
         bool timerProcessFlag = false;
-        int queryTimeInterval = 1000;
+        bool scadaHeartbeatFlag = false;
+        int pMax = 100;
+        int pMin = -100;
+        int pExecuteStatus = 0;
+        int previousPExecuteStatus = 3;
+        int modbusServerMode = 0;
+        int previousModbusServerMode = 2;
+        int scadaMode = 0;
+        int previousScadaMode = 2;
+        int queryTimeInterval = 10;
         int errorCount = 0;
         int updateCount = 0;
+        int scadaHeartbeatTime = 0;
+        int previousScadaHeartbeatCount = 0;
         int clientNo = 0;
         int previousClientNo = 0;
-        
-        
+
+        enum Mode : int
+        {
+            Local = 0,
+            Remote = 1
+        }
+        enum Status : int
+        {
+            unSuccess = 0,
+            success = 1,
+            noExecute = 2
+        }
         public Form1()
         {
             InitializeComponent();
@@ -68,11 +92,39 @@ namespace modbus_server
             //}
             InitMappingData();
             InitIPAddress();
-            InitTextbox();
+            InitRadioButton();
             SetPollingClient();
             SetPollingMongoDBDataCollection();
             SetPollingMongoDBConnect();
+            SetPollingScadaConnect();
             SetUpdateStatusProcess();
+        }
+        public string GetMacAddress()
+        {
+            try
+            {
+                //獲取網路卡硬體地址
+                string mac = "";
+                ManagementClass mc = new ManagementClass("Win32_NetworkAdapterConfiguration");
+                ManagementObjectCollection moc = mc.GetInstances();
+                foreach (ManagementObject mo in moc)
+                {
+                    if ((bool)mo["IPEnabled"] == true)
+                    {
+                        mac = mo["MacAddress"].ToString();
+                        break;
+                    }
+                }
+                moc = null;
+                mc = null;
+                //WriteLog("GetMacAddress : " + mac);//之後要刪
+                return mac;
+            }
+            catch (Exception e)
+            {
+                //WriteLog("GetMacAddress Excption : " + e.Message);//之後要刪
+                return "unknow";
+            }
         }
         public string GetCPUID()
         {
@@ -102,7 +154,7 @@ namespace modbus_server
             this.json = ExcelHelper.ExcelToJson("mappingTable.xlsx");
             foreach (var mappingList in this.json)
             {
-                if(mappingList.Key == "InitStatus")
+                if (mappingList.Key == "InitStatus")
                 {
                     foreach (var status in mappingList.Value)
                     {
@@ -121,7 +173,7 @@ namespace modbus_server
             for (int i = 0; i < this.mongoMappingList.Count(); i++)
             {
                 WriteLog("InitMappingData mappingTable資料內容 : " + this.mongoMappingList[i]);
-                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "InitMappingData mappingTable資料內容 : " + this.mongoMappingList[i]+" \r\n");
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "InitMappingData mappingTable資料內容 : " + this.mongoMappingList[i] + " \r\n");
             }
             for (int i = 0; i < this.statusList.Count(); i++)
             {
@@ -148,8 +200,9 @@ namespace modbus_server
                 }
             }
         }
-        private void InitTextbox()
+        private void InitRadioButton()
         {
+
             if (radioButtonNo.Checked == true)
             {
                 textboxSecondary.Enabled = false;
@@ -161,6 +214,14 @@ namespace modbus_server
             else if (radioButtonYes.Checked == true)
             {
 
+            }
+            if (radioButtonLocal.Checked == true)
+            {
+                this.modbusServerMode = (int)Mode.Local;
+            }
+            else if (radioButtonRemote.Checked == true)
+            {
+                this.modbusServerMode = (int)Mode.Remote;
             }
         }
         public void SetPollingClient()
@@ -214,6 +275,21 @@ namespace modbus_server
                 }
             });
         }
+        public void SetPollingScadaConnect()
+        {
+            /***
+             * 每秒累加scadaHeartbeatTime，若超過6秒沒被歸0，將modbusServerMode改為近端模式
+             * 
+             ***/
+            this.scadaHeartbeat.Interval = 1000;
+            this.scadaHeartbeat.Enabled = false;
+            this.scadaHeartbeat.AutoReset = true;
+            this.scadaHeartbeat.Elapsed += new ElapsedEventHandler((x, y) =>
+            {
+                this.scadaHeartbeatTime++;
+                ScadaHeartBeatDetect(this.scadaHeartbeatTime);
+            });
+        }
         public void SetUpdateStatusProcess()
         {
             this.updateStatus.Interval = 1000;
@@ -223,7 +299,7 @@ namespace modbus_server
                 while (true)
                 {
                     StatusChangeProcess();
-                    Thread.Sleep(3000);
+                    Thread.Sleep(1000);
                 }
             });
         }
@@ -233,13 +309,13 @@ namespace modbus_server
             configReport = ConfigCheacker();
             if (configReport == true)
             {
+                this.queryTimeInterval = Convert.ToInt32(textboxIntervalTime.Text) * 1000;
                 InitMongoDBConnectString();
                 if (this.modbusTcpConnParam.tcpListener != null)
                 {
                     mongoDBStatus = "unConnect";
                     this.modbusTcpConnParam.slave.Dispose();
                     this.modbusTcpConnParam.tcpListener.Stop();
-                    //this.pollingMongoDBConnect.Stop();
                     //this.pollingMongoDBConnect.Stop();
                     //this.pollingClient.Stop();
                     //this.updateStatus.Stop();
@@ -262,10 +338,13 @@ namespace modbus_server
                 textboxSecondaryPort.Enabled = false;
                 textboxArbiter.Enabled = false;
                 textboxArbiterPort.Enabled = false;
+                textboxIntervalTime.Enabled = false;
                 radioButtonYes.Enabled = false;
                 radioButtonNo.Enabled = false;
                 button2.Enabled = true;
                 button1.Enabled = false;
+                WriteLog("讀取時間間隔 : " + textboxIntervalTime.Text + "秒");
+                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "讀取時間間隔 : " + textboxIntervalTime.Text + "秒 \r\n");
             }
         }
         private void button2_Click(object sender, EventArgs e)
@@ -279,6 +358,7 @@ namespace modbus_server
             textboxPassword.Enabled = true;
             textboxPrimary.Enabled = true;
             textboxPrimaryPort.Enabled = true;
+            textboxIntervalTime.Enabled = true;
 
             if (radioButtonYes.Checked == true)
             {
@@ -306,6 +386,11 @@ namespace modbus_server
             {
                 checkReport = false;
                 MessageBox.Show("請輸入Port");
+            }
+            else if (Convert.ToDecimal(textboxIntervalTime.Text.Trim()) < 1)
+            {
+                checkReport = false;
+                MessageBox.Show("最低秒數為1秒");
             }
             else if (string.IsNullOrEmpty(textboxSecondary.Text) && radioButtonYes.Checked == true)
             {
@@ -345,11 +430,12 @@ namespace modbus_server
                 this.modbusTcpConnParam.slave = ModbusTcpSlave.CreateTcp(this.modbusTcpConnParam.slaveID, this.modbusTcpConnParam.tcpListener);
                 this.modbusTcpConnParam.slave.DataStore = Modbus.Data.DataStoreFactory.CreateDefaultDataStore();
                 this.modbusTcpConnParam.slave.ModbusSlaveRequestReceived += Slave_ModbusSlaveRequestReceived;
+                this.modbusTcpConnParam.slave.DataStore.DataStoreWrittenTo += DataStore_DataStoreWrittenTo;
                 this.modbusTcpConnParam.slave.Listen();
                 WriteLog("Modbus Server 已開啟");
                 textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Modbus Server 已開啟 \r\n");
 
-                
+
 
                 //test-------------------------------------------------------------- -
                 //List<bool> writeDataCoil = new List<bool>() { true, false, true, false, true };
@@ -374,27 +460,27 @@ namespace modbus_server
                 label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
         }
-
-        private void Slave_ModbusSlaveRequestReceived(object? sender, ModbusSlaveRequestEventArgs e)
-        {
-
-        }
         public void InitStatus()
         {
             this.timerProcessFlag = true;
-            foreach (var status in this.statusList)
-            {
-                switch (status["Status"].ToString())
-                {
-                    //可在此新增需要監聽的連線狀態
-                    case "mongoDB_connect":
-                        this.pollingMongoDBConnect.Start();
-                        break;
-                    case "client_connect":
-                        this.pollingClient.Start();
-                        break;
-                }
-            }
+            //foreach (var status in this.statusList)
+            //{
+            //    switch (status["Status"].ToString())
+            //    {
+            //        //可在此新增需要監聽的連線狀態
+            //        case "mongoDB_connect":
+            //            this.pollingMongoDBConnect.Start();
+            //            break;
+            //        case "client_connect":
+            //            this.pollingClient.Start();
+            //            break;
+
+            //    }
+            //}
+
+            this.pollingMongoDBConnect.Start();
+            this.pollingClient.Start();
+            this.scadaHeartbeat.Start();
             this.updateStatus.Start();
             this.pollingMongoDB.Start();
         }
@@ -407,7 +493,7 @@ namespace modbus_server
                 string mongoDBPrimary = textboxPrimary.Text.Trim();
                 string mongoDBPrimaryPort = textboxPrimaryPort.Text.Trim();
                 //this.mongoConnectionString = string.Format("mongodb://{0}:{1}@{2}:{3}/admin?serverSelectionTimeoutMS=5000", DBuser, DBpassword, mongoDBPrimary, mongoDBPrimaryPort);
-                this.mongoConnectionString = string.Format("mongodb://{0}:{1}/admin?serverSelectionTimeoutMS=5000",mongoDBPrimary, mongoDBPrimaryPort);
+                this.mongoConnectionString = string.Format("mongodb://{0}:{1}/admin?serverSelectionTimeoutMS=5000", mongoDBPrimary, mongoDBPrimaryPort);
             }
             else if (radioButtonYes.Checked == true)
             {
@@ -425,33 +511,7 @@ namespace modbus_server
                                                           , DBuser, DBpassword, mongoDBPrimary, mongoDBPrimaryPort, mongoDBSecondary, mongoDBSecondaryPort, mongoDBArbiter, mongoDBArbiterPort, replicaSetName);
             }
         }
-        public string GetMacAddress()
-        {
-            try
-            {
-                //獲取網路卡硬體地址
-                string mac = "";
-                ManagementClass mc = new ManagementClass("Win32_NetworkAdapterConfiguration");
-                ManagementObjectCollection moc = mc.GetInstances();
-                foreach (ManagementObject mo in moc)
-                {
-                    if ((bool)mo["IPEnabled"] == true)
-                    {
-                        mac = mo["MacAddress"].ToString();
-                        break;
-                    }
-                }
-                moc = null;
-                mc = null;
-                //WriteLog("GetMacAddress : " + mac);//之後要刪
-                return mac;
-            }
-            catch (Exception e)
-            {
-                //WriteLog("GetMacAddress Excption : " + e.Message);//之後要刪
-                return "unknow";
-            }
-        }
+        
         public void MongoDBConnect()
         {
             //try
@@ -516,9 +576,8 @@ namespace modbus_server
         }
         public void ClientDetect()
         {
-            
             clientNo = ((Modbus.Device.ModbusTcpSlave)modbusTcpConnParam.slave).Masters.Count();
-            if(this.clientNo != this.previousClientNo && this.clientNo != 0 )
+            if (this.clientNo != this.previousClientNo && this.clientNo != 0)
             {
                 textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Client 連線數量 : " + this.clientNo.ToString() + "\r\n"); }));
                 WriteLog("Client 連線數量 : " + this.clientNo.ToString());
@@ -526,7 +585,7 @@ namespace modbus_server
                 this.clientDetectFlag = false;
                 this.clientStatus = "connected";
             }
-            else if(this.clientNo == 0 && this.clientDetectFlag == false)
+            else if (this.clientNo == 0 && this.clientDetectFlag == false)
             {
                 textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Client 連線數量 : " + this.clientNo.ToString() + "\r\n"); }));
                 WriteLog("Client 連線數量 : " + this.clientNo.ToString());
@@ -535,9 +594,204 @@ namespace modbus_server
                 this.clientStatus = "unConnect";
             }
         }
+        public void ScadaHeartBeatDetect(int scadaHeartbeatTime)
+        {
+            if (scadaHeartbeatTime >= 6 && this.scadaHeartbeatFlag == false)
+            {
+                this.modbusServerMode = (int)Mode.Local;
+                //this.scadaMode = (int)Mode.Local;
+                this.previousScadaMode = 2;//主要重置先前的狀態
+                WriteLog("Scada斷線 : modbusServerMode = " + (int)Mode.Local);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Scada斷線，ModbusServer切換為近端模式" + "\r\n"); }));
+                textBox1.Invoke(new Action(() => { radioButtonLocal.Checked = true; ; }));
+                this.scadaHeartbeatFlag = true;
+            }
+
+
+
+
+
+
+            //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "ScadaHeartBeatDetect" + "\r\n"); }));
+            //if (this.scadaHeartbeatCount != this.previousScadaHeartbeatCount)
+            //{
+            //    this.scadaHeartbeatFlag = false;
+            //}
+            //else if (this.scadaHeartbeatCount == this.previousScadaHeartbeatCount && this.scadaHeartbeatFlag == false)
+            //{
+            //    this.modbusServerMode = (int)Mode.Local;
+            //    //this.scadaMode = (int)Mode.Local;
+            //    this.previousScadaMode = 2;//主要重置先前的狀態
+            //    WriteLog("Scada斷線 : modbusServerMode = " + (int)Mode.Local);
+            //    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Scada斷線，ModbusServer切換為近端模式" + "\r\n"); }));
+            //    textBox1.Invoke(new Action(() => { radioButtonLocal.Checked = true; ; }));
+            //    this.scadaHeartbeatFlag = true;
+            //}
+
+            //this.previousScadaHeartbeatCount = this.scadaHeartbeatCount;
+        }
+        private void DataStore_DataStoreWrittenTo(object? sender, Modbus.Data.DataStoreEventArgs e)
+        {
+            /***
+             * 判斷要寫入哪個點位
+             *      寫入scada mode點位
+             *          判斷哪種模式
+             *              0近端
+             *              1遠端
+             *          scadaHeartbeatTime 歸0
+             *      寫入實虛功點位且 modbus mode為遠端模式
+             *          判斷scada mode狀態是否為1且判斷是否介於最大最小值
+             *              是  寫入EMS，判斷是否寫入成功
+             *                  是  執行狀況點位為1
+             *                  否  執行狀況點位為0
+             *              否  寫入LOG，執行狀況為2
+             *      寫入實虛功點位且 modbus mode為近端模式
+             *          執行狀況為2
+             *          
+             *          
+             *      
+             *          檢查是否有超過最大最小值
+             *              是  執行狀況點位改為0(不執行)
+             *              否  判斷scada mode狀態是否為1
+             *                      是 寫入EMS,判斷是否寫成功
+             *                           成功 執行狀況點位為1
+             *                           失敗 執行狀況點位為0
+             *                      否 寫入Log,寫完執行狀況點位為2
+             ***/
+
+            int pValue = 0;
+            BsonDocument doc;
+            if (e.StartAddress == 2)
+            {
+                if (e.Data.B[0] == 0 && e.Data.B[0] != this.previousScadaMode)
+                {
+                    this.scadaMode = (int)Mode.Local;
+                    WriteLog("ScadaMode : 近端模式 " + this.scadaMode);
+                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "ScadaMode : 近端模式 " + this.scadaMode + "\r\n"); }));
+                }
+                else if (e.Data.B[0] == 1 && e.Data.B[0] != this.previousScadaMode)
+                {
+                    this.scadaMode = (int)Mode.Remote;
+                    WriteLog("ScadaMode : 遠端模式 " + this.scadaMode);
+                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "ScadaMode : 遠端模式 " + this.scadaMode + "\r\n"); }));
+                }
+                this.previousScadaMode = this.scadaMode;
+                this.scadaHeartbeatTime = 0;
+                this.scadaHeartbeatFlag = false;
+            }
+            else if (e.StartAddress == 5 && radioButtonRemote.Checked == true)
+            {
+                pValue = ArrayToInt32(e.Data.B.ToArray());
+                if (this.scadaMode == (int)Mode.Remote && pValue <= this.pMax && pValue >= this.pMin)
+                {
+                    try
+                    {
+                        //寫入mongo 
+                        var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>("site_control");
+                        doc = SiteControlCollection(pValue);
+                        //collections.InsertOneAsync(doc);
+                        //執行狀況為1
+                        this.pExecuteStatus = (int)Status.success;
+                        WriteLog("PValue Status : success " + doc.ToString());
+                        WriteLog("PValue Status : success " + this.pExecuteStatus);
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : success " + "\r\n"); }));
+                    }
+                    catch (Exception ee)
+                    {
+                        //寫入失敗 執行狀況為0
+                        this.pExecuteStatus = (int)Status.unSuccess;
+                        WriteLog("PValue Status : unSuccess : 寫入EMS失敗 " + this.pExecuteStatus);
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : unSuccess : 寫入EMS失敗 " + "\r\n"); }));
+                    }
+                }
+                else if (this.scadaMode == (int)Mode.Local)
+                {
+                    //scada mode 為近端模式
+                    this.pExecuteStatus = (int)Status.noExecute;
+                    WriteLog("PValue Status : noExecute : scada mode為近端模式 " + this.pExecuteStatus);
+                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute : scada mode為近端模式 " + "\r\n"); }));
+                }
+                else if (pValue > this.pMax || pValue < this.pMin)
+                {
+                    //功率值超過上下限
+                    this.pExecuteStatus = (int)Status.noExecute;
+                    WriteLog("PValue Status : noExecute : 功率值超過上下限 " + this.pExecuteStatus);
+                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute : 功率值超過上下限 " + "\r\n"); }));
+                }
+            }
+            else if (e.StartAddress == 5 && radioButtonLocal.Checked == true)
+            {
+                pValue = ArrayToInt32(e.Data.B.ToArray());
+                doc = SiteControlCollection(pValue);
+                //modbusServerMode 為近端模式
+                //寫入LOG
+                //執行狀況為2
+                this.pExecuteStatus = (int)Status.noExecute;
+                WriteLog("PValue Status : noExecute " + doc.ToString());
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute " + "\r\n"); }));
+            }
+        }
+        public BsonDocument SiteControlCollection(int pValue)
+        {
+           
+            BsonDocument doc = new BsonDocument {
+                {"ID","schedule" },
+                {"time",DateTime.Now},
+                {"start",DateTime.Now },
+                {"end",DateTime.Now },
+                {"right","USER"},
+                {"eventOrder",1},
+                {"soc_max" , pValue},
+                {"soc_min" , 15},
+                {"System_p_max" , 1800},
+                {"System_p_min" , -1800},
+                {"System_q_max" , 300},
+                {"System_q_min" , -300},
+                {"mode" , 11},
+                {"f1_line_set" , 59.5},
+                {"f2_line_set" , 59.75},
+                {"f3_line_set" , 59.98},
+                {"f4_line_set" , 60.02},
+                {"f5_line_set" , 60.25},
+                {"f6_line_set" , 60.5},
+                {"p1_line_set" , 100},
+                {"p2_line_set" , 48},
+                {"p3_line_set" , 0},
+                {"p4_line_set" , 0},
+                {"p5_line_set" , -48},
+                {"p6_line_set" , -100},
+                {"FP_line_p_base" , 1800},
+                {"FP_type" , 0},
+                {"FP_soc_goal_percent" , 50},
+                {"FP_main_f_set" , 60},
+                {"Vq_v1_set" , 95},
+                {"Vq_v2_set" , 98},
+                {"Vq_v3_set" , 103},
+                {"Vq_v4_set" , 105},
+                {"Vq_v5_set" , 102},
+                {"Vq_v6_set" , 97},
+                {"Vq_v7_set" , 100},
+                {"Vq_q1_set" , 100},
+                {"Vq_q2_set" , 80},
+                {"Vq_q3_set" , -80},
+                {"Vq_q4_set" , -100},
+                {"Vq_q5_set" , -80},
+                {"Vq_q6_set" , 80},
+                {"Vq_q7_set" , 100},
+                {"Vq_q_base" , 300},
+                {"Vq_v_base" , 11.4},
+                {"show", 1 }
+            };
+            return doc;
+        }
+
+        private void Slave_ModbusSlaveRequestReceived(object? sender, ModbusSlaveRequestEventArgs e)
+        {
+
+        }
+        
         //public List<JToken> MongoMappingListCreate(RequestParam requestParam)
         //{
-
         //    int registerCount = 0;
         //    try
         //    {
@@ -556,8 +810,11 @@ namespace modbus_server
         //}
         public void StatusChangeProcess()
         {
+            // 狀態點位的更改都由這邊改
             // statusUpdateList[0] : mongodbStatus
             // statusUpdateList[1] : clientStatus
+            // statusUpdateList[2] : modbusServerMode
+            // statusUpdateList[3] : pStatus
             if (this.mongoDBStatus != this.previousMongoDBStatus && this.mongoDBStatus == "connected")
             {
                 this.statusUpdateList[0] = "1";
@@ -574,6 +831,7 @@ namespace modbus_server
                 textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB 連線狀態 : " + this.statusUpdateList[0] + "\r\n"); }));
                 WriteLog("MongoDB 連線狀態為 : " + this.statusUpdateList[0]);
             }
+            
             if(this.clientStatus != this.previousClientStatus && this.clientStatus == "connected")
             {
                 this.statusUpdateList[1] = "1";
@@ -590,6 +848,49 @@ namespace modbus_server
                 WriteLog("Client  連線狀態為 : " + this.statusUpdateList[1]);
                 textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Client  連線狀態 : " + this.statusUpdateList[1] + "\r\n"); }));
             }
+            
+            if(this.modbusServerMode == (int)Mode.Local && this.modbusServerMode != this.previousModbusServerMode)
+            {
+                this.statusUpdateList[2] = "0";
+                this.updateStatusFlag = true;
+                this.previousModbusServerMode = this.modbusServerMode;
+                WriteLog("ModbusServer Mode : 近端模式 " + this.statusUpdateList[2]);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "ModbusServer Mode : 近端模式" + "\r\n"); }));
+            }
+            else if(this.modbusServerMode == (int)Mode.Remote && this.modbusServerMode != this.previousModbusServerMode)
+            {
+                this.statusUpdateList[2] = "1";
+                this.updateStatusFlag = true;
+                this.previousModbusServerMode = this.modbusServerMode;
+                WriteLog("ModbusServer Mode : 遠端模式 " + this.statusUpdateList[2]);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "ModbusServer Mode : 遠端模式" + "\r\n"); }));
+            }
+
+            if (this.pExecuteStatus == (int)Status.success && this.pExecuteStatus != this.previousPExecuteStatus)
+            {
+                this.statusUpdateList[3] = "1";
+                this.updateStatusFlag = true;
+                this.previousPExecuteStatus = this.pExecuteStatus;
+                //WriteLog("PValue Status : success " + this.statusUpdateList[3]);
+                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : success " + "\r\n"); }));
+            }
+            else if (this.pExecuteStatus == (int)Status.unSuccess && this.pExecuteStatus != this.previousPExecuteStatus)
+            {
+                this.statusUpdateList[3] = "0";
+                this.updateStatusFlag = true;
+                this.previousPExecuteStatus = this.pExecuteStatus;
+                //WriteLog("PValue Status : unSuccess " + this.statusUpdateList[3]);
+                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : unSuccess " + "\r\n"); }));
+            }
+            else if (this.pExecuteStatus == (int)Status.noExecute && this.pExecuteStatus != this.previousPExecuteStatus)
+            {
+                this.statusUpdateList[3] = "2";
+                this.updateStatusFlag = true;
+                this.previousPExecuteStatus = this.pExecuteStatus;
+                //WriteLog("PValue Status : noExecute " + this.statusUpdateList[3]);
+                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute " + "\r\n"); }));
+            }
+
             if(this.updateStatusFlag == true)
             {
                 DataStoreWrite(this.statusList, this.statusUpdateList);
@@ -709,6 +1010,7 @@ namespace modbus_server
                 var filter = Builders<BsonDocument>.Filter;
                 var sort = Builders<BsonDocument>.Sort;
                 doc = collections.Find(filter.Empty).Sort(sort.Descending("_id")).Limit(1).ToList().Last();//倒序
+                WriteLog("Query : " + doc);
             }
             catch (Exception e)
             {
@@ -734,10 +1036,22 @@ namespace modbus_server
                 {
                     mongoValue = doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum];
                 }
+                else if (mongoDBQueryParam.array == false && mongoDBQueryParam.field == "time")
+                {
+                    //加入時間戳處理Function
+                    string time = doc[mongoDBQueryParam.field].ToString();
+                    mongoValue = (BsonValue)DateTimeToTimestamp(time);
+                }
                 else if (mongoDBQueryParam.array == false)
                 {
                     mongoValue = doc[mongoDBQueryParam.field];
                 }
+                if(mongoValue == BsonNull.Value)
+                {
+                    mongoValue = 0;
+                }   
+
+
                 switch (mongoDBQueryParam.type)
                 {
                     case "int32":
@@ -864,6 +1178,7 @@ namespace modbus_server
                         try
                         {
                             int floatLength = 2;
+                            int longLegnth = 4;
                             List<string> writeDataHoldingRegisters = (List<string>)writeData;
                             switch (mongoMappingList[i]["Type"].ToString())
                             {
@@ -876,7 +1191,7 @@ namespace modbus_server
                                         WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"] + address] + " = " + writeDataHoldingRegisters[mongoDataCount]);
                                         if (textBoxMessageCloseFlag == false || textBoxMessageStatusCloseFlag == false)
                                         {
-                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataHoldingRegisters[mongoDataCount] + "\r\n"); }));
+                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + (Convert.ToInt16(mongoMappingList[i]["Registers"])+ address) + " = " + writeDataHoldingRegisters[mongoDataCount] + "\r\n"); }));
                                         }
                                         mongoDataCount++;
                                     }
@@ -904,6 +1219,7 @@ namespace modbus_server
                         try
                         {
                             int floatLength = 2;
+                            int longLegnth = 4;
                             List<string> writeDataInputRegisters = (List<string>)writeData;
                             switch (mongoMappingList[i]["Type"].ToString())
                             {
@@ -916,7 +1232,7 @@ namespace modbus_server
                                         WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputRegisters[mongoDataCount]);
                                         if (textBoxMessageCloseFlag == false || textBoxMessageStatusCloseFlag == false)
                                         {
-                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
+                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + (Convert.ToInt16(mongoMappingList[i]["Registers"]) + address) +  " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
                                         }
                                         mongoDataCount++;
                                     }
@@ -924,7 +1240,7 @@ namespace modbus_server
                                 default:
                                     this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] = ushort.Parse(writeDataInputRegisters[mongoDataCount]);
                                     WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputRegisters[mongoDataCount]);
-
+                                    
                                     if (textBoxMessageCloseFlag == false || textBoxMessageStatusCloseFlag == false)
                                     {
                                         textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
@@ -957,6 +1273,11 @@ namespace modbus_server
             updateCount++;
             label4.Invoke(new Action(() => { label4.Text = updateCount.ToString(); }));
         }
+        public void DataStoreWrite(int startAddress , int value)
+        {
+            //if(this.modbusTcpConnParam.slave == null )
+            //    this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[startAddress + 1] = (ushort)value;
+        }
         public List<string> FloatConvertToInt16(BsonValue floatData)
         {
             List<string> dataList = new List<string>();
@@ -980,6 +1301,46 @@ namespace modbus_server
                 dataList.Add(uintData[index].ToString());
             }
             return dataList;
+        }
+
+        public int ArrayToInt32(ushort[] arrayData)
+        {
+            int data = 0;
+            short[] array = new short[1];
+            Buffer.BlockCopy(arrayData.ToArray(), 0, array, 0, 2);
+            data = array[0];
+            return data;
+        }
+
+        public List<string> Int64ConvertToInt16(BsonValue int64Data)
+        {
+            List<string> dataList = new List<string>();
+            ushort[] uintData = new ushort[4];
+            ulong[] intDataTmp = new ulong[1] { Convert.ToUInt64(int64Data) };
+            Buffer.BlockCopy(intDataTmp, 0, uintData, 0, 8);
+            for (int index = 0; index < uintData.Length; index++)
+            {
+                dataList.Add(uintData[index].ToString());
+            }
+            return dataList;
+        }
+        public List<string> ASCII2HexByte(string str)
+        {
+            List<string> result = new List<string>();
+
+            for (int i = 0; i < str.Length; i++)
+            {
+                byte tmp = (byte)str[i];
+                result.Add(tmp.ToString());
+            }
+            return result;
+        }
+        public long DateTimeToTimestamp(string time)
+        {
+            long timestamp = 0;
+            DateTimeOffset ddd = DateTimeOffset.Parse(time);
+            timestamp = ddd.ToUnixTimeSeconds(); // 相差秒數
+            return timestamp;
         }
         public void WriteLog(string logMessage)
         {
@@ -1025,5 +1386,29 @@ namespace modbus_server
             textboxArbiterPort.Enabled = true;
             textboxReplicaSet.Enabled = true;
         }
+
+        private void radioButtonLocal_CheckedChanged(object sender, EventArgs e)
+        {
+            if(radioButtonLocal.Checked == true)
+            {
+                this.modbusServerMode = (int)Mode.Local;
+                //WriteLog("Modbus Server Mode : 近端模式");
+                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Modbus Server Mode : 近端模式" + "\r\n"); }));
+            }
+        }
+
+        private void radioButtonRemote_CheckedChanged(object sender, EventArgs e)
+        {
+            if (radioButtonRemote.Checked == true)
+            {
+                this.modbusServerMode = (int)Mode.Remote;
+            }
+            //this.modbusServerMode = 1;
+            //DataStoreWrite(startAddress, modeValue);
+            //WriteLog("Modbus Server Mode : 遠端模式");
+            //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Modbus Server Mode : 遠端模式" + "\r\n"); }));
+
+        }
+
     }
 }
