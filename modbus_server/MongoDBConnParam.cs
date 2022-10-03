@@ -30,5 +30,6 @@ namespace modbus_server
         public bool array { get; set; }
         public int arrayLevel { get; set; }
         public int arrayNum { get; set; }
+        public string id { get; set; }
     }
 }

@@ -11,6 +11,7 @@ using MongoDB;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Timers;
+using System.Text.RegularExpressions;
 
 namespace modbus_server
 {
@@ -31,6 +32,8 @@ namespace modbus_server
 
         //之後改成偵測init數量來動態新增list的數量
         List<string> statusUpdateList = new List<string>() { "0", "0", "0", "0" };// statusUpdateList[0] : mongodbStatus 0斷線 1連線 , statusUpdateList[1] : clientStatus 0斷線 1連線 ,statusUpdateList[2] : modbus server mode  0近端 1遠端 ,statusUpdateList[3] : pExecuteStatus
+        List<string> passIpAddress = new List<string>() {"192.168.101.203","192.168.56.1","192.168.111.58"};
+        
         //string mongoConnectionString = "mongodb://wynn:0000@192.168.56.101:27017,192.168.56.102:27017,192.168.56.103:27017/?replicaSet=rs0&serverSelectionTimeoutMS=5000";
         string mongoConnectionString = string.Empty;
         string logAddress = @"D:\log\";
@@ -60,6 +63,7 @@ namespace modbus_server
         int previousScadaHeartbeatCount = 0;
         int clientNo = 0;
         int previousClientNo = 0;
+        int previousPValue = 0;
 
         enum Mode : int
         {
@@ -69,35 +73,35 @@ namespace modbus_server
         enum Status : int
         {
             unSuccess = 0,
-            success = 1,
-            noExecute = 2
+            success = 1
         }
         public Form1()
         {
             InitializeComponent();
-            //cpuID = GetCPUID();
-            //if (cpuID == "BFEBFBFF000806C1")//BFEBFBFF000806C1(test)   BFEBFBFF000906EA(Modbus Server)   04:42:1A:CB:96:CA(remote)
-            //{
-            //    InitMappingData();
-            //    InitIPAddress();
-            //    InitTextbox();
-            //    SetPollingClient();
-            //    SetPollingMongoDBTimer();
-            //    SetPollingMongoDBConnect();
-            //    SetUpdateStatusProcess();
-            //}
-            //else
-            //{
-            //    throw new Exception("系統異常");
-            //}
-            InitMappingData();
-            InitIPAddress();
-            InitRadioButton();
-            SetPollingClient();
-            SetPollingMongoDBDataCollection();
-            SetPollingMongoDBConnect();
-            SetPollingScadaConnect();
-            SetUpdateStatusProcess();
+            cpuID = GetCPUID();
+            if (cpuID == "BFEBFBFF000906EA")//BFEBFBFF000806C1(test)   BFEBFBFF000906EA(Modbus Server)   04:42:1A:CB:96:CA(remote)
+            {
+                InitMappingData();
+                InitIPAddress();
+                InitRadioButton();
+                SetPollingClient();
+                SetPollingMongoDBDataCollection();
+                SetPollingMongoDBConnect();
+                SetPollingScadaConnect();
+                SetUpdateStatusProcess();
+            }
+            else
+            {
+                throw new Exception("系統異常");
+            }
+            //InitMappingData();
+            //InitIPAddress();
+            //InitRadioButton();
+            //SetPollingClient();
+            //SetPollingMongoDBDataCollection();
+            //SetPollingMongoDBConnect();
+            //SetPollingScadaConnect();
+            //SetUpdateStatusProcess();
         }
         public string GetMacAddress()
         {
@@ -170,16 +174,16 @@ namespace modbus_server
                 }
             }
             //-------------------------------------------------------------
-            for (int i = 0; i < this.mongoMappingList.Count(); i++)
-            {
-                WriteLog("InitMappingData mappingTable資料內容 : " + this.mongoMappingList[i]);
-                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "InitMappingData mappingTable資料內容 : " + this.mongoMappingList[i] + " \r\n");
-            }
-            for (int i = 0; i < this.statusList.Count(); i++)
-            {
-                WriteLog("InitMappingData statusList內容 : " + this.statusList[i]);
-                textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "InitMappingData statusList內容 : " + this.statusList[i] + " \r\n");
-            }
+            //for (int i = 0; i < this.mongoMappingList.Count(); i++)
+            //{
+            //    WriteLog("InitMappingData mappingTable資料內容 : " + this.mongoMappingList[i]);
+            //    textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "InitMappingData mappingTable資料內容 : " + this.mongoMappingList[i] + " \r\n");
+            //}
+            //for (int i = 0; i < this.statusList.Count(); i++)
+            //{
+            //    WriteLog("InitMappingData statusList內容 : " + this.statusList[i]);
+            //    textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "InitMappingData statusList內容 : " + this.statusList[i] + " \r\n");
+            //}
             //-------------------------------------------------------------
             WriteLog("InitMappingData mappingTable資料筆數 : " + this.mongoMappingList.Count());
             WriteLog("InitMappingData statusList : " + this.statusList.Count());
@@ -215,14 +219,6 @@ namespace modbus_server
             {
 
             }
-            if (radioButtonLocal.Checked == true)
-            {
-                this.modbusServerMode = (int)Mode.Local;
-            }
-            else if (radioButtonRemote.Checked == true)
-            {
-                this.modbusServerMode = (int)Mode.Remote;
-            }
         }
         public void SetPollingClient()
         {
@@ -231,9 +227,17 @@ namespace modbus_server
             this.pollingClient.AutoReset = false;
             this.pollingClient.Elapsed += new ElapsedEventHandler((x, y) =>
             {
+                MongoDBQueryParam tcpControlQueryParam = new MongoDBQueryParam();
+                tcpControlQueryParam.database = "AFC";
+                tcpControlQueryParam.collection = "tcp_control";
+                tcpControlQueryParam.field = "control";
                 while (true)
                 {
                     ClientDetect();
+                    if(this.mongoDBStatus == "connected")
+                    {
+                        EmsControlMode(tcpControlQueryParam);
+                    }
                     Thread.Sleep(1000);
                 }
             });
@@ -268,10 +272,11 @@ namespace modbus_server
             this.pollingMongoDBConnect.AutoReset = false;
             this.pollingMongoDBConnect.Elapsed += new ElapsedEventHandler((x, y) =>
             {
+
                 while (true)
                 {
-                    MongoDBConnect();
-                    Thread.Sleep(5000);
+                    MongoDBHeartBeat();
+                    Thread.Sleep(1000);
                 }
             });
         }
@@ -288,6 +293,7 @@ namespace modbus_server
             {
                 this.scadaHeartbeatTime++;
                 ScadaHeartBeatDetect(this.scadaHeartbeatTime);
+                //RemoteIPScan();
             });
         }
         public void SetUpdateStatusProcess()
@@ -311,9 +317,12 @@ namespace modbus_server
             {
                 this.queryTimeInterval = Convert.ToInt32(textboxIntervalTime.Text) * 1000;
                 InitMongoDBConnectString();
+                
+                //textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "this.modbusTcpConnParam.tcpListener : " + this.modbusTcpConnParam.tcpListener + "\r\n");//debug
                 if (this.modbusTcpConnParam.tcpListener != null)
                 {
-                    mongoDBStatus = "unConnect";
+                    WriteLog("this.modbusTcpConnParam.tcpListener : " + this.modbusTcpConnParam.tcpListener);//debug
+                    this.mongoDBStatus = "unConnect";
                     this.modbusTcpConnParam.slave.Dispose();
                     this.modbusTcpConnParam.tcpListener.Stop();
                     //this.pollingMongoDBConnect.Stop();
@@ -325,6 +334,7 @@ namespace modbus_server
                 }
                 else
                 {
+                    WriteLog("this.modbusTcpConnParam.tcpListener : null " + this.modbusTcpConnParam.tcpListener);//debug
                     this.modbusTcpConnParam.ipAddress = (IPAddress)comboBox1.SelectedItem;
                     InitModbusTcpSlave();
                     InitStatus();
@@ -343,6 +353,7 @@ namespace modbus_server
                 radioButtonNo.Enabled = false;
                 button2.Enabled = true;
                 button1.Enabled = false;
+                this.updateStatusFlag = true;
                 WriteLog("讀取時間間隔 : " + textboxIntervalTime.Text + "秒");
                 textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "讀取時間間隔 : " + textboxIntervalTime.Text + "秒 \r\n");
             }
@@ -457,7 +468,7 @@ namespace modbus_server
                 errorCount++;
                 WriteLog("InitModbusTcpSlave : " + e.Message);
                 textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "InitModbusTcpSlave : " + e.Message + "\r\n");
-                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
         }
         public void InitStatus()
@@ -480,9 +491,10 @@ namespace modbus_server
 
             this.pollingMongoDBConnect.Start();
             this.pollingClient.Start();
-            this.scadaHeartbeat.Start();
+            //this.scadaHeartbeat.Start();//need open
             this.updateStatus.Start();
             this.pollingMongoDB.Start();
+            WriteLog("InitStatus ");//debug
         }
         public void InitMongoDBConnectString()
         {
@@ -492,8 +504,8 @@ namespace modbus_server
                 string DBpassword = textboxPassword.Text.Trim();
                 string mongoDBPrimary = textboxPrimary.Text.Trim();
                 string mongoDBPrimaryPort = textboxPrimaryPort.Text.Trim();
-                //this.mongoConnectionString = string.Format("mongodb://{0}:{1}@{2}:{3}/admin?serverSelectionTimeoutMS=5000", DBuser, DBpassword, mongoDBPrimary, mongoDBPrimaryPort);
-                this.mongoConnectionString = string.Format("mongodb://{0}:{1}/admin?serverSelectionTimeoutMS=5000", mongoDBPrimary, mongoDBPrimaryPort);
+                this.mongoConnectionString = string.Format("mongodb://{0}:{1}@{2}:{3}/admin?serverSelectionTimeoutMS=5000", DBuser, DBpassword, mongoDBPrimary, mongoDBPrimaryPort);
+                //this.mongoConnectionString = string.Format("mongodb://{0}:{1}/admin?serverSelectionTimeoutMS=5000", mongoDBPrimary, mongoDBPrimaryPort);
             }
             else if (radioButtonYes.Checked == true)
             {
@@ -511,57 +523,52 @@ namespace modbus_server
                                                           , DBuser, DBpassword, mongoDBPrimary, mongoDBPrimaryPort, mongoDBSecondary, mongoDBSecondaryPort, mongoDBArbiter, mongoDBArbiterPort, replicaSetName);
             }
         }
-        
+        public void MongoDBHeartBeat()
+        {
+            try
+            {
+                this.mongoDBConnParam.connectionString = mongoConnectionString;
+                this.mongoDBConnParam.mongoClient = new MongoClient(this.mongoDBConnParam.connectionString);
+                IMongoDatabase db = this.mongoDBConnParam.mongoClient.GetDatabase("AFC");
+                var collections = db.GetCollection<BsonDocument>("program");
+                var filter = Builders<BsonDocument>.Filter.Eq("ID", "modbusData");
+                var updater = Builders<BsonDocument>.Update.Set("count", 0);
+                collections.UpdateOne(filter, updater);
+                mongoDBStatus = "connected";
+            }
+            catch (Exception e)
+            {
+                errorCount++;
+                WriteLog("MongoDBConnect  Exception : " + e.Message);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB連線失敗 " + "\r\n"); }));
+                //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                mongoDBStatus = "unConnect";
+            }
+
+
+        }
         public void MongoDBConnect()
         {
-            //try
-            //{
-            //    this.mongoDBConnParam.connectionString = mongoConnectionString;
-            //    this.mongoDBConnParam.mongoClient = new MongoClient(this.mongoDBConnParam.connectionString);
-
-            //    IMongoDatabase db = this.mongoDBConnParam.mongoClient.GetDatabase("admin");
-            //    var conn = db.ListCollectionNames();
-            //    WriteLog("連線至Mongo");
-            //    this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[6 + 1] = true;
-            //    this.modbusTcpConnParam.slave.DataStore.InputDiscretes[6 + 1] = true;
-            //    this.modbusTcpConnParam.slave.DataStore.InputRegisters[6 + 1] = 1;
-            //    this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[6 + 1] = 1;
-            //    if (mongoDBStatus == "unConnect")
-            //    {
-            //        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB 連線狀態點位為 : 1" + "\r\n"); }));
-            //        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB連線成功 " + "\r\n"); }));
-            //    }
-            //    //textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB連線成功 " + "\r\n");
-            //    mongoDBStatus = "connected";
-            //}
-            //catch (Exception e)
-            //{
-            //    errorCount++;
-            //    WriteLog("MongoDBConnect  Exception : " + e.Message);
-            //    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB 連線狀態點位為 : 0" + "\r\n"); }));
-            //    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB連線失敗 " + "\r\n"); }));
-            //    this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[6 + 1] = false;
-            //    this.modbusTcpConnParam.slave.DataStore.InputDiscretes[6 + 1] = false;
-            //    this.modbusTcpConnParam.slave.DataStore.InputRegisters[6 + 1] = 0;
-            //    this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[6 + 1] = 0;
-            //    //textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB連線失敗 : " + "\r\n");
-            //    label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
-            //    mongoDBStatus = "unConnect";
-            //}
-
             if (mongoDBStatus == "unConnect")
             {
                 try
                 {
                     this.mongoDBConnParam.connectionString = mongoConnectionString;
                     this.mongoDBConnParam.mongoClient = new MongoClient(this.mongoDBConnParam.connectionString);
-                    IMongoDatabase db = this.mongoDBConnParam.mongoClient.GetDatabase("admin");
+                    IMongoDatabase db = this.mongoDBConnParam.mongoClient.GetDatabase("AFC");
+                    var collections = db.GetCollection<BsonDocument>("program");
+                    var filter = Builders<BsonDocument>.Filter.Eq("ID", "modbusData");
+                    var updater = Builders<BsonDocument>.Update.Set("count", 0);
+                    collections.UpdateOne(filter, updater);
+
+
+
                     //var collections = db.GetCollection<BsonDocument>("system.users");
                     //var filter = Builders<BsonDocument>.Filter.Empty;
                     //var doc  = collections.Find(filter).ToList();
-                    var conn = db.ListCollectionNames();
+                    //var conn = db.ListCollectionNames();
 
-                    WriteLog("連線至Mongo");
+                    WriteLog("MongoDB連線成功");
                     textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB連線成功 " + "\r\n"); }));
                     mongoDBStatus = "connected";
                 }
@@ -570,7 +577,7 @@ namespace modbus_server
                     errorCount++;
                     WriteLog("MongoDBConnect  Exception : " + e.Message);
                     textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB連線失敗 " + "\r\n"); }));
-                    label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                    //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                 }
             }
         }
@@ -579,19 +586,31 @@ namespace modbus_server
             clientNo = ((Modbus.Device.ModbusTcpSlave)modbusTcpConnParam.slave).Masters.Count();
             if (this.clientNo != this.previousClientNo && this.clientNo != 0)
             {
-                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Client 連線數量 : " + this.clientNo.ToString() + "\r\n"); }));
-                WriteLog("Client 連線數量 : " + this.clientNo.ToString());
+                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Client 連線數量 : " + this.clientNo.ToString() + "\r\n"); }));
+                //WriteLog("Client 連線數量 : " + this.clientNo.ToString());
                 this.previousClientNo = this.clientNo;
                 this.clientDetectFlag = false;
                 this.clientStatus = "connected";
             }
             else if (this.clientNo == 0 && this.clientDetectFlag == false)
             {
-                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Client 連線數量 : " + this.clientNo.ToString() + "\r\n"); }));
-                WriteLog("Client 連線數量 : " + this.clientNo.ToString());
+                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Client 連線數量 : " + this.clientNo.ToString() + "\r\n"); }));
+                //WriteLog("Client 連線數量 : " + this.clientNo.ToString());
                 this.previousClientNo = this.clientNo;
                 this.clientDetectFlag = true;
                 this.clientStatus = "unConnect";
+            }
+        }
+        public void EmsControlMode(MongoDBQueryParam tcpControlQueryParam)
+        {
+            var queryData = Query(tcpControlQueryParam);
+            if(queryData[tcpControlQueryParam.field] == 1)
+            {
+                this.modbusServerMode = (int)Mode.Remote;
+            }
+            else
+            {
+                this.modbusServerMode = (int)Mode.Local;
             }
         }
         public void ScadaHeartBeatDetect(int scadaHeartbeatTime)
@@ -603,36 +622,79 @@ namespace modbus_server
                 this.previousScadaMode = 2;//主要重置先前的狀態
                 WriteLog("Scada斷線 : modbusServerMode = " + (int)Mode.Local);
                 textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Scada斷線，ModbusServer切換為近端模式" + "\r\n"); }));
-                textBox1.Invoke(new Action(() => { radioButtonLocal.Checked = true; ; }));
-                this.scadaHeartbeatFlag = true;
+
+                try
+                {
+                    //停止模式
+                    //寫入site_control
+                    MongoDBQueryParam mongoDBQueryParam = new MongoDBQueryParam();
+                    mongoDBQueryParam.database = "AFC";
+                    mongoDBQueryParam.collection = "site_control";
+                    var queryData = Query(mongoDBQueryParam);
+                    var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
+                    var doc = SiteControlCollection(0, queryData, 0);//need open
+                    collections.InsertOneAsync(doc);//need open
+
+
+                    //寫入SOE
+                    MongoDBQueryParam eventQueryParam = new MongoDBQueryParam();
+                    eventQueryParam.database = "AFC";
+                    eventQueryParam.collection = "SOE";
+                    var eventCollections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(eventQueryParam.collection);
+                    string events = "SCADA斷線，發送停止模式指令(實功:" + 0 + " kW)";
+                    var eventDoc = SOECollection(events);
+                    eventCollections.InsertOneAsync(eventDoc);
+                    this.scadaHeartbeatFlag = true;
+
+                    //執行狀況為1
+                    this.pExecuteStatus = (int)Status.success;
+
+                    //WriteLog("PValue Status : success " + doc.ToString());//need open
+                    WriteLog("PValue Status : success " + this.pExecuteStatus + ": " + 0);
+                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : success " + 0 + "\r\n"); }));
+                    //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "這是輸入EMS的指令 " + "\r\n"); }));
+                    //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + doc.ToString() + "\r\n"); }));//need open
+                }
+                catch (Exception e)
+                {
+                    //寫入失敗 執行狀況為0
+                    this.pExecuteStatus = (int)Status.unSuccess;
+                    WriteLog("PValue Status : unSuccess : 寫入EMS失敗 " + this.pExecuteStatus);
+                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : unSuccess : 寫入EMS失敗 " + "\r\n"); }));
+                }
             }
+        }
+        public void RemoteIPScan()
+        {
+            try
+            {
+                for (int i = 0; i < ((Modbus.Device.ModbusTcpSlave)modbusTcpConnParam.slave).Masters.Count(); i++)
+                {
+                    if (((Modbus.Device.ModbusTcpSlave)modbusTcpConnParam.slave).Masters[i].Client.Connected == true)
+                    {
+                        string matchString = @"((0|1\d?\d?|2(\d?|[0-4]\d|5[0-5])|[3-9]\d?)\.){3}(0|1\d?\d?|2(\d?|[0-4]\d|5[0-5])|[3-9]\d?)";
+                        string remoteEndPoint = (((Modbus.Device.ModbusTcpSlave)modbusTcpConnParam.slave).Masters[i].Client.RemoteEndPoint).ToString();
+                        Regex regex = new Regex(matchString);
+                        string remoteIp = regex.Match(remoteEndPoint).ToString();
 
-
-
-
-
-
-            //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "ScadaHeartBeatDetect" + "\r\n"); }));
-            //if (this.scadaHeartbeatCount != this.previousScadaHeartbeatCount)
-            //{
-            //    this.scadaHeartbeatFlag = false;
-            //}
-            //else if (this.scadaHeartbeatCount == this.previousScadaHeartbeatCount && this.scadaHeartbeatFlag == false)
-            //{
-            //    this.modbusServerMode = (int)Mode.Local;
-            //    //this.scadaMode = (int)Mode.Local;
-            //    this.previousScadaMode = 2;//主要重置先前的狀態
-            //    WriteLog("Scada斷線 : modbusServerMode = " + (int)Mode.Local);
-            //    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Scada斷線，ModbusServer切換為近端模式" + "\r\n"); }));
-            //    textBox1.Invoke(new Action(() => { radioButtonLocal.Checked = true; ; }));
-            //    this.scadaHeartbeatFlag = true;
-            //}
-
-            //this.previousScadaHeartbeatCount = this.scadaHeartbeatCount;
+                        if (!this.passIpAddress.Contains(remoteIp))
+                        {
+                            ((Modbus.Device.ModbusTcpSlave)modbusTcpConnParam.slave).Masters[i].Client.Disconnect(false);
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "已斷開IP: " + remoteIp + "\r\n"); }));
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                WriteLog("RemoteIPScan Exception : " + e.Message);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "RemoteIPScan Exception : " + e.Message + "\r\n"); }));
+            }
         }
         private void DataStore_DataStoreWrittenTo(object? sender, Modbus.Data.DataStoreEventArgs e)
         {
             /***
+             * 
              * 判斷要寫入哪個點位
              *      寫入scada mode點位
              *          判斷哪種模式
@@ -660,7 +722,18 @@ namespace modbus_server
              ***/
 
             int pValue = 0;
-            BsonDocument doc;
+            BsonDocument doc = new BsonDocument();
+            BsonDocument eventDoc = new BsonDocument(); 
+            MongoDBQueryParam eventQueryParam = new MongoDBQueryParam();
+            eventQueryParam.database = "AFC";
+            eventQueryParam.collection = "SOE";
+            var eventCollections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(eventQueryParam.collection);
+
+            MongoDBQueryParam mongoDBQueryParam = new MongoDBQueryParam();
+            mongoDBQueryParam.database = "AFC";
+            mongoDBQueryParam.collection = "site_control";
+            var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
+
             if (e.StartAddress == 2)
             {
                 if (e.Data.B[0] == 0 && e.Data.B[0] != this.previousScadaMode)
@@ -679,108 +752,134 @@ namespace modbus_server
                 this.scadaHeartbeatTime = 0;
                 this.scadaHeartbeatFlag = false;
             }
-            else if (e.StartAddress == 5 && radioButtonRemote.Checked == true)
+            else if (e.StartAddress == 5 && this.modbusServerMode == (int)Mode.Remote)
             {
+                int mode = 6;
+                string events = string.Empty;
+                ushort signedParam;
                 pValue = ArrayToInt32(e.Data.B.ToArray());
-                if (this.scadaMode == (int)Mode.Remote && pValue <= this.pMax && pValue >= this.pMin)
+                if (this.scadaMode == (int)Mode.Remote)
                 {
-                    try
+                    signedParam = this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[7];
+                    if( pValue > 0 && signedParam == 0 || pValue < 0 && signedParam == 65535 || pValue == 0 )
                     {
-                        //寫入mongo 
-                        var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>("site_control");
-                        doc = SiteControlCollection(pValue);
-                        //collections.InsertOneAsync(doc);
-                        //執行狀況為1
-                        this.pExecuteStatus = (int)Status.success;
-                        WriteLog("PValue Status : success " + doc.ToString());
-                        WriteLog("PValue Status : success " + this.pExecuteStatus);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : success " + "\r\n"); }));
+                        if(pValue != this.previousPValue)
+                        {
+                            try
+                            {
+                                //寫入site_control
+                                var queryData = Query(mongoDBQueryParam);
+                                doc = SiteControlCollection(pValue, queryData, mode);//need open
+                                collections.InsertOneAsync(doc);//need open
+
+                                //if (pValue == 0)
+                                //{
+                                //    Thread.Sleep(2000);
+                                //    mode = 0;
+                                //    doc = SiteControlCollection(pValue, queryData, mode);//need open
+                                //    collections.InsertOneAsync(doc);//need open
+                                //}
+
+                                //寫入SOE
+                                events = "由SCADA遠端指令控制(實功:" + pValue + " kW)";
+                                eventDoc = SOECollection(events);
+                                eventCollections.InsertOneAsync(eventDoc);
+
+
+                                //執行狀況為1
+                                this.pExecuteStatus = (int)Status.success;
+                                this.previousPValue = pValue;
+                                //WriteLog("PValue Status : success " + doc.ToString());//need open
+                                WriteLog("PValue Status : success " + this.pExecuteStatus + ": " + pValue);
+                                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : success " + pValue + "\r\n"); }));
+                                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "這是輸入EMS的指令 " + "\r\n"); }));
+                                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + doc.ToString() + "\r\n"); }));//need open
+                            }
+                            catch (Exception ee)
+                            {
+                                //寫入失敗 執行狀況為0
+                                this.pExecuteStatus = (int)Status.unSuccess;
+                                WriteLog("PValue Status : unSuccess : 寫入EMS失敗 " + this.pExecuteStatus);
+                                WriteLog("PValue Status : unSuccess : " + doc);//need open
+                                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : unSuccess : 寫入EMS失敗 " + "\r\n"); }));
+                            }
+                        }
+                        else
+                        {
+                            //寫入失敗 執行狀況為0
+                            this.pExecuteStatus = (int)Status.unSuccess;
+                            //寫入SOE
+                            events = "SCADA寫入重複數值(實功:" + pValue + " kW)";
+                            eventDoc = SOECollection(events);
+                            eventCollections.InsertOneAsync(eventDoc);
+
+                            WriteLog("PValue Status : unSuccess : 寫入重複數值 " + pValue);
+                            WriteLog("PValue Status : unSuccess : " + doc);//need open
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : unSuccess : 寫入重複數值 " + pValue + "\r\n"); }));
+                        }
                     }
-                    catch (Exception ee)
+                    else
                     {
                         //寫入失敗 執行狀況為0
                         this.pExecuteStatus = (int)Status.unSuccess;
-                        WriteLog("PValue Status : unSuccess : 寫入EMS失敗 " + this.pExecuteStatus);
-                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : unSuccess : 寫入EMS失敗 " + "\r\n"); }));
+                        WriteLog("PValue Status : unSuccess : 寫入EMS失敗 符號輸入錯誤 " + this.pExecuteStatus + ": " + pValue);
+                        WriteLog("PValue Status : unSuccess : " + doc);//need open
+                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : unSuccess : 寫入EMS失敗 符號輸入錯誤 " + "\r\n"); }));
                     }
                 }
                 else if (this.scadaMode == (int)Mode.Local)
                 {
                     //scada mode 為近端模式
-                    this.pExecuteStatus = (int)Status.noExecute;
-                    WriteLog("PValue Status : noExecute : scada mode為近端模式 " + this.pExecuteStatus);
-                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute : scada mode為近端模式 " + "\r\n"); }));
+                    this.pExecuteStatus = (int)Status.unSuccess;
+                    WriteLog("PValue Status : unSuccess : scada mode為近端模式 " + this.pExecuteStatus);
+                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : .unSuccess : scada mode為近端模式 " + "\r\n"); }));
                 }
-                else if (pValue > this.pMax || pValue < this.pMin)
-                {
-                    //功率值超過上下限
-                    this.pExecuteStatus = (int)Status.noExecute;
-                    WriteLog("PValue Status : noExecute : 功率值超過上下限 " + this.pExecuteStatus);
-                    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute : 功率值超過上下限 " + "\r\n"); }));
-                }
+                //else if (pValue > this.pMax || pValue < this.pMin)
+                //{
+                //    //功率值超過上下限
+                //    this.pExecuteStatus = (int)Status.noExecute;
+                //    WriteLog("PValue Status : noExecute : 功率值超過上下限 " + this.pExecuteStatus);
+                //    textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute : 功率值超過上下限 " + "\r\n"); }));
+                //}
             }
-            else if (e.StartAddress == 5 && radioButtonLocal.Checked == true)
+            else if (e.StartAddress == 5 && this.modbusServerMode == (int)Mode.Local)
             {
                 pValue = ArrayToInt32(e.Data.B.ToArray());
-                doc = SiteControlCollection(pValue);
+                //doc = SiteControlCollection(pValue);
                 //modbusServerMode 為近端模式
                 //寫入LOG
                 //執行狀況為2
-                this.pExecuteStatus = (int)Status.noExecute;
-                WriteLog("PValue Status : noExecute " + doc.ToString());
-                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute " + "\r\n"); }));
+                this.pExecuteStatus = (int)Status.unSuccess;
+                WriteLog("PValue Status : unSuccess : modbusServerMode 為近端模式 " + pValue);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : unSuccess : modbusServerMode 為近端模式 " + +pValue+"\r\n"); }));
             }
         }
-        public BsonDocument SiteControlCollection(int pValue)
+        public BsonDocument SOECollection(string events)
         {
-           
+            BsonDocument doc = new BsonDocument
+                {
+                    {"ID","site_control"},
+                    {"time",DateTime.Now.AddHours(8)},
+                    {"event",events},
+                    {"type","systemMode" }
+                };
+            return doc;
+        }
+        public BsonDocument SiteControlCollection(int pValue, BsonDocument queryData,int mode)
+        {
             BsonDocument doc = new BsonDocument {
-                {"ID","schedule" },
-                {"time",DateTime.Now},
-                {"start",DateTime.Now },
-                {"end",DateTime.Now },
-                {"right","USER"},
-                {"eventOrder",1},
-                {"soc_max" , pValue},
-                {"soc_min" , 15},
-                {"System_p_max" , 1800},
-                {"System_p_min" , -1800},
-                {"System_q_max" , 300},
-                {"System_q_min" , -300},
-                {"mode" , 11},
-                {"f1_line_set" , 59.5},
-                {"f2_line_set" , 59.75},
-                {"f3_line_set" , 59.98},
-                {"f4_line_set" , 60.02},
-                {"f5_line_set" , 60.25},
-                {"f6_line_set" , 60.5},
-                {"p1_line_set" , 100},
-                {"p2_line_set" , 48},
-                {"p3_line_set" , 0},
-                {"p4_line_set" , 0},
-                {"p5_line_set" , -48},
-                {"p6_line_set" , -100},
-                {"FP_line_p_base" , 1800},
-                {"FP_type" , 0},
-                {"FP_soc_goal_percent" , 50},
-                {"FP_main_f_set" , 60},
-                {"Vq_v1_set" , 95},
-                {"Vq_v2_set" , 98},
-                {"Vq_v3_set" , 103},
-                {"Vq_v4_set" , 105},
-                {"Vq_v5_set" , 102},
-                {"Vq_v6_set" , 97},
-                {"Vq_v7_set" , 100},
-                {"Vq_q1_set" , 100},
-                {"Vq_q2_set" , 80},
-                {"Vq_q3_set" , -80},
-                {"Vq_q4_set" , -100},
-                {"Vq_q5_set" , -80},
-                {"Vq_q6_set" , 80},
-                {"Vq_q7_set" , 100},
-                {"Vq_q_base" , 300},
-                {"Vq_v_base" , 11.4},
-                {"show", 1 }
+                {"ID", "site_control"},
+                {"mode" , mode},
+                {"time",DateTime.Now.AddHours(8)},
+                {"scheduleFlag",0 },
+                {"soc_max" , queryData["soc_max"]},
+                {"soc_min" , queryData["soc_min"]},
+                {"System_p_max" , queryData["System_p_max"]},
+                {"System_p_min" , queryData["System_p_min"]},
+                {"System_q_max" , queryData["System_q_max"]},
+                {"System_q_min" , queryData["System_q_min"]},
+                {"PQ_p_ref", pValue },
+                {"PQ_q_ref", 0 },
             };
             return doc;
         }
@@ -817,10 +916,13 @@ namespace modbus_server
             // statusUpdateList[3] : pStatus
             if (this.mongoDBStatus != this.previousMongoDBStatus && this.mongoDBStatus == "connected")
             {
+                WriteLog("StatusChangeProcess mongodbStatus : " + this.mongoDBStatus + "  " + this.previousMongoDBStatus);//debug
                 this.statusUpdateList[0] = "1";
                 this.updateStatusFlag = true;
                 this.previousMongoDBStatus = this.mongoDBStatus;
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB連線成功 " + "\r\n"); }));
                 textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDB 連線狀態 : " + this.statusUpdateList[0] + "\r\n"); }));
+                WriteLog("MongoDB連線成功");
                 WriteLog("MongoDB 連線狀態為 : " + this.statusUpdateList[0]);
             }
             else if (this.mongoDBStatus != this.previousMongoDBStatus && this.mongoDBStatus == "unConnect")
@@ -842,6 +944,7 @@ namespace modbus_server
             }
             else if(this.clientStatus != this.previousClientStatus && this.clientStatus == "unConnect")
             {
+                WriteLog("StatusChangeProcess clientStatus : " + this.clientStatus + "  " + this.previousClientStatus);//debug
                 this.statusUpdateList[1] = "0";
                 this.updateStatusFlag = true;
                 this.previousClientStatus = this.clientStatus;
@@ -851,6 +954,7 @@ namespace modbus_server
             
             if(this.modbusServerMode == (int)Mode.Local && this.modbusServerMode != this.previousModbusServerMode)
             {
+                WriteLog("StatusChangeProcess modbusServerMode : " + this.modbusServerMode + "  " + this.previousModbusServerMode);//debug
                 this.statusUpdateList[2] = "0";
                 this.updateStatusFlag = true;
                 this.previousModbusServerMode = this.modbusServerMode;
@@ -859,6 +963,7 @@ namespace modbus_server
             }
             else if(this.modbusServerMode == (int)Mode.Remote && this.modbusServerMode != this.previousModbusServerMode)
             {
+                WriteLog("StatusChangeProcess modbusServerMode : " + this.modbusServerMode + "  " + this.previousModbusServerMode);//debug
                 this.statusUpdateList[2] = "1";
                 this.updateStatusFlag = true;
                 this.previousModbusServerMode = this.modbusServerMode;
@@ -868,6 +973,7 @@ namespace modbus_server
 
             if (this.pExecuteStatus == (int)Status.success && this.pExecuteStatus != this.previousPExecuteStatus)
             {
+                WriteLog("StatusChangeProcess pStatus : " + this.pExecuteStatus + "  " + this.previousPExecuteStatus);//debug
                 this.statusUpdateList[3] = "1";
                 this.updateStatusFlag = true;
                 this.previousPExecuteStatus = this.pExecuteStatus;
@@ -876,20 +982,21 @@ namespace modbus_server
             }
             else if (this.pExecuteStatus == (int)Status.unSuccess && this.pExecuteStatus != this.previousPExecuteStatus)
             {
+                WriteLog("StatusChangeProcess pStatus : " + this.pExecuteStatus + "  " + this.previousPExecuteStatus);//debug
                 this.statusUpdateList[3] = "0";
                 this.updateStatusFlag = true;
                 this.previousPExecuteStatus = this.pExecuteStatus;
                 //WriteLog("PValue Status : unSuccess " + this.statusUpdateList[3]);
                 //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : unSuccess " + "\r\n"); }));
             }
-            else if (this.pExecuteStatus == (int)Status.noExecute && this.pExecuteStatus != this.previousPExecuteStatus)
-            {
-                this.statusUpdateList[3] = "2";
-                this.updateStatusFlag = true;
-                this.previousPExecuteStatus = this.pExecuteStatus;
-                //WriteLog("PValue Status : noExecute " + this.statusUpdateList[3]);
-                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute " + "\r\n"); }));
-            }
+            //else if (this.pExecuteStatus == (int)Status.noExecute && this.pExecuteStatus != this.previousPExecuteStatus)
+            //{
+            //    this.statusUpdateList[3] = "2";
+            //    this.updateStatusFlag = true;
+            //    this.previousPExecuteStatus = this.pExecuteStatus;
+            //    //WriteLog("PValue Status : noExecute " + this.statusUpdateList[3]);
+            //    //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "PValue Status : noExecute " + "\r\n"); }));
+            //}
 
             if(this.updateStatusFlag == true)
             {
@@ -912,6 +1019,7 @@ namespace modbus_server
         {
             string previousCollection = string.Empty;
             string previousField = string.Empty;
+            string previousId = string.Empty;
             BsonDocument document = new BsonDocument();
             List<string> mongoDataList = new List<string>();
             List<string> mongoDataListTMP = new List<string>();
@@ -931,25 +1039,36 @@ namespace modbus_server
                         this.mongoDBQueryParam.array = (bool)mongoMappingList[i]["Array"];
                         this.mongoDBQueryParam.arrayLevel = (int)mongoMappingList[i]["ArrayLevel"];
                         this.mongoDBQueryParam.arrayNum = (int)mongoMappingList[i]["ArrayNumber"];
+                        this.mongoDBQueryParam.id = (string)mongoMappingList[i]["ID"];
 
-                        
-                        
 
-                        if (this.mongoDBQueryParam.collection != previousCollection && this.mongoDBQueryParam.field != previousField)
+
+
+                        if (this.mongoDBQueryParam.collection != previousCollection && this.mongoDBQueryParam.field != previousField || this.mongoDBQueryParam.id != previousId)
                         {
                             document = Query(this.mongoDBQueryParam);
                             previousField = this.mongoDBQueryParam.field;
                             previousCollection = this.mongoDBQueryParam.collection;
+                            previousId = this.mongoDBQueryParam.id;
                         }
-                        mongoDataListTMP = QueryDataExtrating(this.mongoDBQueryParam, document);
 
+                        if (document.ElementCount != 0)
+                        {
+                            mongoDataListTMP = QueryDataExtrating(this.mongoDBQueryParam, document);
+                        }
+                        else
+                        {
+                            mongoDataListTMP.Add("mongoStatusUnconnect");
+                            WriteLog("MongoDataCollection : " + this.mongoDBQueryParam.collection + " 尚未產生資料 ");
+                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "MongoDataCollection : " + this.mongoDBQueryParam.collection + " 尚未產生資料 " + "\r\n"); }));
+                        }
                         if (mongoDataListTMP[0] != "mongoStatusUnconnect")
                         {
                             foreach (var mongoData in mongoDataListTMP)
                             {
                                 mongoDataList.Add(mongoData);
-                                mongoDataTest.Add(mongoData);//test
-                                WriteLog("MongoDataCollection mongoData : " + mongoData);
+                                //mongoDataTest.Add(mongoData);//test
+                                //WriteLog("MongoDataCollection mongoData : " + mongoData);
                             }
                             mongoDataListTMP.Clear();
                         }
@@ -967,8 +1086,8 @@ namespace modbus_server
                         break;
                     }
                 }
-                WriteLog("MongoDataCollection mongoMappingList : " + mongoMappingList.Count());
-                WriteLog("MongoDataCollection mongoDataList : " + mongoDataList.Count());
+                //WriteLog("MongoDataCollection mongoMappingList : " + mongoMappingList.Count());
+                //WriteLog("MongoDataCollection mongoDataList : " + mongoDataList.Count());
                 //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "點位數量 : " + mongoMappingList.Count() + " 資料數量 : " + mongoDataList.Count() + "\r\n"); }));
             }
             catch (Exception e)
@@ -976,7 +1095,7 @@ namespace modbus_server
                 WriteLog("Exception MongoDataCollection : " + e.Message);
                 textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception MongoDataCollection : " + e.Message + "\r\n"); }));
                 errorCount++;
-                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
             //Test---------------------------------------------------------------------
             //List<string> testSample = new List<string>() { "1", "0", "1", "0", "0", "1", "0", "1", "4", "4", "2", "10", "4", "4", "4", "4", "39322", "16025", "4719", "15235", "29884", "15379", "62588", "184", "1", "5", "0", "1", "2", "9", "2", "4", "3", "6", "7", "4", "4", "1", "0", "4", "3", "3", "4", "3", "3", "7", "5", "2", "4", "0", "4", "6", "5", "2", "2", "1", "0", "5", "0", "0", "0", "0", "0" };
@@ -995,7 +1114,7 @@ namespace modbus_server
             //    WriteLog("資料內容有誤");
             //}
             //---------------------------------------------------------------------
-            WriteLog("MongoDataCollection : " + mongoDataList.Count());
+            //WriteLog("MongoDataCollection : " + mongoDataList.Count());
             mongoDataTest.Clear();
             return mongoDataList ;
         }
@@ -1009,15 +1128,24 @@ namespace modbus_server
                 var collections = this.mongoDBConnParam.mongoDataBase.GetCollection<BsonDocument>(mongoDBQueryParam.collection);
                 var filter = Builders<BsonDocument>.Filter;
                 var sort = Builders<BsonDocument>.Sort;
-                doc = collections.Find(filter.Empty).Sort(sort.Descending("_id")).Limit(1).ToList().Last();//倒序
-                WriteLog("Query : " + doc);
+
+                if (mongoDBQueryParam.collection.ToString() == "env" || mongoDBQueryParam.collection.ToString() == "rio")
+                {
+                    //filter出特定ID
+                    doc = collections.Find(filter.Eq("ID", mongoDBQueryParam.id)).Sort(sort.Descending("_id")).Limit(1).ToList().Last();//倒序
+                }
+                else 
+                {
+                    doc = collections.Find(filter.Empty).Sort(sort.Descending("_id")).Limit(1).ToList().Last();//倒序
+                }
+                //WriteLog("Query : " + doc);
             }
             catch (Exception e)
             {
                 WriteLog("Exception Query : " + e.Message);
                 textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception Query : " + e.Message + "\r\n"); }));
                 errorCount++;
-                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
             return doc;
         }
@@ -1042,6 +1170,12 @@ namespace modbus_server
                     string time = doc[mongoDBQueryParam.field].ToString();
                     mongoValue = (BsonValue)DateTimeToTimestamp(time);
                 }
+                else if (mongoDBQueryParam.array == false && mongoDBQueryParam.field == "expireAt")
+                {
+                    //加入時間戳處理Function
+                    string time = doc[mongoDBQueryParam.field].ToString();
+                    mongoValue = (BsonValue)DateTimeToTimestamp(time);
+                }
                 else if (mongoDBQueryParam.array == false)
                 {
                     mongoValue = doc[mongoDBQueryParam.field];
@@ -1058,43 +1192,43 @@ namespace modbus_server
                     case "uint32":
                         try
                         {
-                            WriteLog("QueryData : " + mongoValue.ToString());
+                            //WriteLog("QueryData : " + mongoValue.ToString());
                             mongoDataList = Int32ConvertToInt16(mongoValue);
                         }
                         catch (Exception e)
                         {
-                            WriteLog("Exception QueryData : " + e.Message);
+                            WriteLog("Exception uint32 QueryData : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
                             errorCount++;
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                            //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     case "float":
                         try
                         {
-                            WriteLog("QueryData : " + mongoValue.ToString());
+                            //WriteLog("QueryData : " + mongoValue.ToString());
                             mongoDataList = FloatConvertToInt16(mongoValue);
                         }
                         catch (Exception e)
                         {
-                            WriteLog("Exception QueryData : " + e.Message);
+                            WriteLog("Exception float QueryData : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
                             errorCount++;
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                            //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     default:
                         try
                         {
-                            WriteLog("QueryData : " + mongoValue.ToString());
+                            //WriteLog("QueryData : " + mongoValue.ToString());
                             mongoDataList.Add(mongoValue.ToString());
                         }
                         catch (Exception e)
                         {
-                            WriteLog("Exception QueryData : " + e.Message);
+                            WriteLog("Exception default QueryData : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
                             errorCount++;
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                            //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                 }
@@ -1106,7 +1240,7 @@ namespace modbus_server
                 WriteLog("Exception QueryData : " + e.Message);
                 //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Exception QueryData : " + e.Message + "\r\n"); }));
                 errorCount++;
-                label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
             }
             return mongoDataList;
         }
@@ -1130,10 +1264,10 @@ namespace modbus_server
                                 this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]] = false;
                             }
                             //this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]] = bool.Parse(writeDataCoil[i]);
-                            WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataCoil[mongoDataCount]);
+                            WriteLog("Read Coil Status : " + this.modbusTcpConnParam.slave.DataStore.CoilDiscretes[(int)mongoMappingList[i]["Registers"]-1] + " = " + writeDataCoil[mongoDataCount]);
                             if(textBoxMessageCloseFlag == false || textBoxMessageStatusCloseFlag == false)
                             {
-                                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status : " + Convert.ToInt16((int)mongoMappingList[i]["Registers"]) + " = " + writeDataCoil[mongoDataCount] + "\r\n"); }));
+                                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status : " + (Convert.ToInt16((int)mongoMappingList[i]["Registers"])-1) + " = " + writeDataCoil[mongoDataCount] + "\r\n"); }));
                             }
                             mongoDataCount++;
                         }
@@ -1142,7 +1276,7 @@ namespace modbus_server
                             errorCount++;
                             WriteLog("Read Coil Status exception : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Coil Status exception : " + e.Message + "\r\n"); }));
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                            //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     case "2"://Read Input Status
@@ -1158,11 +1292,11 @@ namespace modbus_server
                                 this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]] = false;
                             }
                             //this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]] = bool.Parse(writeDataInputDiscreates[i]);
-                            WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputDiscreates[mongoDataCount]);
+                            //WriteLog("Read Input Status : " + this.modbusTcpConnParam.slave.DataStore.InputDiscretes[(int)mongoMappingList[i]["Registers"]-1] + " = " + writeDataInputDiscreates[mongoDataCount]);
                             
                             if (textBoxMessageCloseFlag == false || textBoxMessageStatusCloseFlag == false)
                             {
-                                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputDiscreates[mongoDataCount] + "\r\n"); }));
+                                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status : " + (Convert.ToInt16(mongoMappingList[i]["Registers"])-1) + " = " + writeDataInputDiscreates[mongoDataCount] + "\r\n"); }));
                             }
                             mongoDataCount++;
                         }
@@ -1171,7 +1305,7 @@ namespace modbus_server
                             errorCount++;
                             WriteLog("Read Input Status exception : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Status exception : " + e.Message + "\r\n"); }));
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                            //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     case "3"://Read Holding Registers
@@ -1188,20 +1322,20 @@ namespace modbus_server
                                     for (int address = 0; address < floatLength; address++)
                                     {
                                         this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"] + address] = ushort.Parse(writeDataHoldingRegisters[mongoDataCount]) ;
-                                        WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"] + address] + " = " + writeDataHoldingRegisters[mongoDataCount]);
+                                        //WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"] + address -1 ] + " = " + writeDataHoldingRegisters[mongoDataCount]);
                                         if (textBoxMessageCloseFlag == false || textBoxMessageStatusCloseFlag == false)
                                         {
-                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + (Convert.ToInt16(mongoMappingList[i]["Registers"])+ address) + " = " + writeDataHoldingRegisters[mongoDataCount] + "\r\n"); }));
+                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + (Convert.ToInt16(mongoMappingList[i]["Registers"])+ address -1) + " = " + writeDataHoldingRegisters[mongoDataCount] + "\r\n"); }));
                                         }
                                         mongoDataCount++;
                                     }
                                     break;
                                 default:
                                     this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"]] = ushort.Parse(writeDataHoldingRegisters[mongoDataCount]);
-                                    WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataHoldingRegisters[mongoDataCount]);
+                                    //WriteLog("Read Holding Registers : " + this.modbusTcpConnParam.slave.DataStore.HoldingRegisters[(int)mongoMappingList[i]["Registers"] -1 ] + " = " + writeDataHoldingRegisters[mongoDataCount]);
                                     if (textBoxMessageCloseFlag == false || textBoxMessageStatusCloseFlag == false)
                                     {
-                                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataHoldingRegisters[mongoDataCount] + "\r\n"); }));
+                                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers : " + (Convert.ToInt16(mongoMappingList[i]["Registers"]) -1) + " = " + writeDataHoldingRegisters[mongoDataCount] + "\r\n"); }));
                                     }
                                     mongoDataCount++;
                                     break;
@@ -1212,7 +1346,7 @@ namespace modbus_server
                             errorCount++;
                             WriteLog("Read Holding Registers exception : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Holding Registers exception : " + e.Message + "\r\n"); }));
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                            //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     case "4"://Read Input Registers
@@ -1229,21 +1363,21 @@ namespace modbus_server
                                     for (int address = 0; address < floatLength; address++)
                                     {
                                         this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"] + address] = ushort.Parse(writeDataInputRegisters[mongoDataCount]);
-                                        WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputRegisters[mongoDataCount]);
+                                        //WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]-1] + " = " + writeDataInputRegisters[mongoDataCount]);
                                         if (textBoxMessageCloseFlag == false || textBoxMessageStatusCloseFlag == false)
                                         {
-                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + (Convert.ToInt16(mongoMappingList[i]["Registers"]) + address) +  " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
+                                            textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + (Convert.ToInt16(mongoMappingList[i]["Registers"]) + address -1) +  " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
                                         }
                                         mongoDataCount++;
                                     }
                                     break;
                                 default:
                                     this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] = ushort.Parse(writeDataInputRegisters[mongoDataCount]);
-                                    WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]] + " = " + writeDataInputRegisters[mongoDataCount]);
+                                    //WriteLog("Read Input Registers : " + this.modbusTcpConnParam.slave.DataStore.InputRegisters[(int)mongoMappingList[i]["Registers"]-1] + " = " + writeDataInputRegisters[mongoDataCount]);
                                     
                                     if (textBoxMessageCloseFlag == false || textBoxMessageStatusCloseFlag == false)
                                     {
-                                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + Convert.ToInt16(mongoMappingList[i]["Registers"]) + " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
+                                        textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers : " + (Convert.ToInt16(mongoMappingList[i]["Registers"])-1) + " = " + writeDataInputRegisters[mongoDataCount] + "\r\n"); }));
                                     }
                                     mongoDataCount++;
                                     break;
@@ -1263,7 +1397,7 @@ namespace modbus_server
                             errorCount++;
                             WriteLog("Read Input Registers exception : " + e.Message);
                             textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Read Input Registers exception : " + e.Message + "\r\n"); }));
-                            label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
+                            //label3.Invoke(new Action(() => { label3.Text = errorCount.ToString(); }));
                         }
                         break;
                     default:
@@ -1271,7 +1405,7 @@ namespace modbus_server
                 }
             }
             updateCount++;
-            label4.Invoke(new Action(() => { label4.Text = updateCount.ToString(); }));
+            //label4.Invoke(new Action(() => { label4.Text = updateCount.ToString(); }));
         }
         public void DataStoreWrite(int startAddress , int value)
         {
@@ -1281,37 +1415,61 @@ namespace modbus_server
         public List<string> FloatConvertToInt16(BsonValue floatData)
         {
             List<string> dataList = new List<string>();
-            ushort[] uintData = new ushort[2];
-            float[] floatDataTmp = new float[1] { Convert.ToSingle(floatData)};
-            Buffer.BlockCopy(floatDataTmp, 0, uintData, 0, 4);
-            for (int index = 0; index < uintData.Length; index++)
+            try
             {
-                dataList.Add(uintData[index].ToString());
+                ushort[] uintData = new ushort[2];
+                float[] floatDataTmp = new float[1] { Convert.ToSingle(floatData) };
+                Buffer.BlockCopy(floatDataTmp, 0, uintData, 0, 4);
+                for (int index = 0; index < uintData.Length; index++)
+                {
+                    dataList.Add(uintData[index].ToString());
+                }
             }
+            catch (Exception e)
+            {
+                WriteLog("FloatConvertToInt16 exception : " + e.Message);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "FloatConvertToInt16 exception : " + e.Message + "\r\n"); }));
+            }
+            
             return dataList;
         }
         public List<string> Int32ConvertToInt16(BsonValue int32Data)
         {
             List<string> dataList = new List<string>();
-            ushort[] uintData = new ushort[2];
-            int[] intDataTmp = new int[1] { Convert.ToInt32(int32Data) };
-            Buffer.BlockCopy(intDataTmp, 0, uintData, 0, 4);
-            for (int index = 0; index < uintData.Length; index++)
+            try
             {
-                dataList.Add(uintData[index].ToString());
+                ushort[] uintData = new ushort[2];
+                int[] intDataTmp = new int[1] { Convert.ToInt32(int32Data) };
+                Buffer.BlockCopy(intDataTmp, 0, uintData, 0, 4);
+                for (int index = 0; index < uintData.Length; index++)
+                {
+                    dataList.Add(uintData[index].ToString());
+                }
             }
+            catch (Exception e)
+            {
+                WriteLog("Int32ConvertToInt16 exception : " + e.Message);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Int32ConvertToInt16 exception : " + e.Message + "\r\n"); }));
+            }
+           
             return dataList;
         }
-
         public int ArrayToInt32(ushort[] arrayData)
         {
             int data = 0;
-            short[] array = new short[1];
-            Buffer.BlockCopy(arrayData.ToArray(), 0, array, 0, 2);
-            data = array[0];
+            try
+            {
+                short[] array = new short[1];
+                Buffer.BlockCopy(arrayData.ToArray(), 0, array, 0, 2);
+                data = array[0];
+            }
+            catch (Exception e)
+            {
+                WriteLog("ArrayToInt32 exception : " + e.Message);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "ArrayToInt32 exception : " + e.Message + "\r\n"); }));
+            }
             return data;
         }
-
         public List<string> Int64ConvertToInt16(BsonValue int64Data)
         {
             List<string> dataList = new List<string>();
@@ -1338,8 +1496,16 @@ namespace modbus_server
         public long DateTimeToTimestamp(string time)
         {
             long timestamp = 0;
-            DateTimeOffset ddd = DateTimeOffset.Parse(time);
-            timestamp = ddd.ToUnixTimeSeconds(); // 相差秒數
+            try
+            {
+                DateTimeOffset ddd = DateTimeOffset.Parse(time);
+                timestamp = ddd.ToUnixTimeSeconds(); // 相差秒數
+            }
+            catch (Exception e)
+            {
+                WriteLog("ArrayToInt32 exception : " + e.Message);
+                textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "ArrayToInt32 exception : " + e.Message + "\r\n"); }));
+            }
             return timestamp;
         }
         public void WriteLog(string logMessage)
@@ -1386,29 +1552,5 @@ namespace modbus_server
             textboxArbiterPort.Enabled = true;
             textboxReplicaSet.Enabled = true;
         }
-
-        private void radioButtonLocal_CheckedChanged(object sender, EventArgs e)
-        {
-            if(radioButtonLocal.Checked == true)
-            {
-                this.modbusServerMode = (int)Mode.Local;
-                //WriteLog("Modbus Server Mode : 近端模式");
-                //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Modbus Server Mode : 近端模式" + "\r\n"); }));
-            }
-        }
-
-        private void radioButtonRemote_CheckedChanged(object sender, EventArgs e)
-        {
-            if (radioButtonRemote.Checked == true)
-            {
-                this.modbusServerMode = (int)Mode.Remote;
-            }
-            //this.modbusServerMode = 1;
-            //DataStoreWrite(startAddress, modeValue);
-            //WriteLog("Modbus Server Mode : 遠端模式");
-            //textBox1.Invoke(new Action(() => { textBox1.AppendText(DateTime.Now.ToString("T") + "   " + "Modbus Server Mode : 遠端模式" + "\r\n"); }));
-
-        }
-
     }
 }
