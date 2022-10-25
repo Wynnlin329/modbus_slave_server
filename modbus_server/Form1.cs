@@ -80,7 +80,7 @@ namespace modbus_server
         {
             InitializeComponent();
             cpuID = GetCPUID();
-            if (cpuID == "BFEBFBFF000906EA")//BFEBFBFF000806C1(test)   BFEBFBFF000906EA(Modbus Server)   04:42:1A:CB:96:CA(remote)
+            if (cpuID == "BFEBFBFF000806C1")//BFEBFBFF000806C1(test)   BFEBFBFF000906EA(Modbus Server)   04:42:1A:CB:96:CA(remote)
             {
                 InitMappingData();
                 InitIPAddress();
@@ -223,7 +223,7 @@ namespace modbus_server
 
             }
         }
-        public void SetPollingClient()//設定每秒讀取目前client端是否有連線
+        public void SetPollingClient()//設定每秒確認目前client端是否有連線，確認EMS的設定為近端或是遠端
         {
             List<string> writeDataTemp = new List<string>();
             this.pollingClient.Interval = 1000;
@@ -265,7 +265,7 @@ namespace modbus_server
                 this.clientStatus = "unConnect";
             }
         }
-        public void EmsControlMode(MongoDBQueryParam tcpControlQueryParam)//設定每秒確認EMS的設定為近端或是遠端
+        public void EmsControlMode(MongoDBQueryParam tcpControlQueryParam)//確認EMS的設定為近端或是遠端
         {
             var queryData = Query(tcpControlQueryParam);
             if (queryData[tcpControlQueryParam.field] == 1)
@@ -985,8 +985,8 @@ namespace modbus_server
                         this.mongoDBQueryParam.field = (string)mongoMappingList[i]["Field"];
                         this.mongoDBQueryParam.type = (string)mongoMappingList[i]["Type"];
                         this.mongoDBQueryParam.array = (bool)mongoMappingList[i]["Array"];
-                        this.mongoDBQueryParam.arrayLevel = (int)mongoMappingList[i]["ArrayLevel"];
-                        this.mongoDBQueryParam.arrayNum = (int)mongoMappingList[i]["ArrayNumber"];
+                        this.mongoDBQueryParam.arrayLevel = (string)mongoMappingList[i]["ArrayLevel"];
+                        this.mongoDBQueryParam.arrayNum = (string)mongoMappingList[i]["ArrayNumber"];
                         this.mongoDBQueryParam.id = (string)mongoMappingList[i]["ID"];
 
 
@@ -1101,16 +1101,32 @@ namespace modbus_server
         public List<string> QueryDataExtrating(MongoDBQueryParam mongoDBQueryParam,BsonDocument doc)//整理query到的資料
         {
             List<string> mongoDataList = new List<string>();
+            string[] arrayLevel = null;
             BsonValue mongoValue = null;
+            BsonValue mongoValueTMP = null;
             try
             {
-                if (mongoDBQueryParam.arrayLevel > 0 && mongoDBQueryParam.array == true)
+                if (mongoDBQueryParam.arrayLevel != "0" && mongoDBQueryParam.array == true)
                 {
-                    //另外想多層怎麼解
+                    //mongoValueTMP = doc[mongoDBQueryParam.field];
+                    //arrayLevel =  mongoDBQueryParam.arrayLevel.Split(",");
+                    //foreach (var item in arrayLevel)
+                    //{
+                    //    mongoValueTMP = mongoValueTMP[Convert.ToInt16(item)];
+                    //}
+                    //mongoValue = mongoValueTMP[mongoDBQueryParam.arrayNum];
+
                 }
                 else if (mongoDBQueryParam.array == true)
                 {
-                    mongoValue = doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum];
+                    mongoValue = doc[mongoDBQueryParam.field];
+                    arrayLevel = mongoDBQueryParam.arrayNum.Split(",");
+                    foreach (var item in arrayLevel)
+                    {
+                        mongoValue = mongoValue[Convert.ToInt16(item)];
+                    }
+
+                    //mongoValue = doc[mongoDBQueryParam.field][mongoDBQueryParam.arrayNum];
                 }
                 else if (mongoDBQueryParam.array == false && mongoDBQueryParam.field == "time")
                 {

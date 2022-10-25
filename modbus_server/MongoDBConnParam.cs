@@ -28,8 +28,8 @@ namespace modbus_server
         public string field { get; set; }
         public string type { get; set; }
         public bool array { get; set; }
-        public int arrayLevel { get; set; }
-        public int arrayNum { get; set; }
+        public string arrayLevel { get; set; }
+        public string arrayNum { get; set; }
         public string id { get; set; }
     }
 }
